@@ -33,12 +33,20 @@ def edges_from_protein_seequence(prot_seq):
 
 
 class BindingAffinityDataset(Dataset):
+
     def __init__(self, root, dataset_name='DAVIS', test=False):
         """
         """
         self.test = test
         self.dataset_name = dataset_name
         self.raw_file_name = f'{dataset_name}.tab'
+
+        self.master_test_filename = osp.join(root,
+                                             (f'master_test_'
+                                              f'{self.dataset_name}.csv'))
+
+        self.master_filename = osp.join(root,
+                                        f'master_{self.dataset_name}.csv')
 
         super(BindingAffinityDataset, self).__init__(root, None, None)
 
@@ -50,42 +58,23 @@ class BindingAffinityDataset(Dataset):
     def processed_file_names(self):
 
         if self.test:
-            self.master = pd.read_csv(
-                osp.join(self.processed_dir,
-                         (f'master_test_{self.dataset_name}.csv')))
-
+            self.master = pd.read_csv(self.master_test_filename)
         else:
-            self.master = pd.read_csv(
-                osp.join(self.processed_dir,
-                         (f'master_test_{self.dataset_name}.csv')))
+            self.master = pd.read_csv(self.master_filename)
 
         prot_ids = self.master['Target_ID'].unique()
         prot_embed_fnames = [f'{id}_embedded.pt' for id in prot_ids]
         drug_ids = self.master['Drug_ID'].unique()
         drug_embed_fnames = [f'{id}_embedded.pt' for id in drug_ids]
-        filenames = prot_embed_fnames + drug_embed_fnames
 
-        return filenames
+        return prot_embed_fnames + drug_embed_fnames
 
     def download(self):
 
         raw_data = DTI(name=self.dataset_name, path=self.raw_dir)
         split = raw_data.get_split()
-
         self.raw_train = split['train']
-        self.raw_train['prot_embed_fname'] = ' ' * 40
-        self.raw_train['drug_embed_fname'] = ' ' * 93
-        self.raw_train['log_y'] = np.nan
-        self.raw_train.to_csv(osp.join(self.processed_dir,
-                              f'master_{self.dataset_name}.csv'),
-                              index=False)
         self.raw_test = split['test']
-        self.raw_test['prot_embed_fname'] = ' ' * 40
-        self.raw_test['drug_embed_fname'] = ' ' * 93
-        self.raw_test['log_y'] = np.nan
-        self.raw_train.to_csv(osp.join(self.processed_dir,
-                              f'master_test_{self.dataset_name}.csv'),
-                              index=False)
 
     def process(self):
 
@@ -103,47 +92,48 @@ class BindingAffinityDataset(Dataset):
         else:
             raw = self.raw_train
 
+        raw['prot_embed_fname'] = ''
+        raw['drug_embed_fname'] = ''
+        raw['log_y'] = np.nan
+
         for idx, row in tqdm(raw.iterrows(), total=raw.shape[0]):
 
             raw['log_y'].loc[idx] = np.log(row['Y'])
 
             embed_fname = f'{row["Target_ID"]}_embedded.pt'
             # Only embed a protein if it hasn't already been embedded and saved
-            if embed_fname not in raw['prot_embed_fname']:
+            # import ipdb; ipdb.set_trace()
+            if embed_fname not in raw['prot_embed_fname'].to_list():
 
                 token_ids = torch.tensor(
                     [prot_tokenizer.encode(row['Target'])])
                 embed = prot_model(token_ids)[0].squeeze()
                 edges = edges_from_protein_seequence(row['Target'])
-                fname = osp.join(self.processed_dir, embed_fname)
                 data = {'embeddings': Data(x=embed, edge_index=edges),
                         'Target_ID': row['Target_ID']}
-                torch.save(data, fname)
+                torch.save(data, osp.join(self.processed_dir, embed_fname))
+
             # Add the embed filename to the master file
             raw['prot_embed_fname'].loc[idx] = embed_fname
 
             embed_fname = f'{row["Drug_ID"]}_embedded.pt'
             # Only embed a drug if it hasn't already been embedded and saved
-            if embed_fname not in raw['drug_embed_fname']:
+            if embed_fname not in raw['drug_embed_fname'].to_list():
 
                 token_ids = torch.tensor([drug_tokenizer.encode(row['Drug'])])
                 embed = drug_model(token_ids).last_hidden_state.squeeze()
                 edges = from_smiles(row['Drug']).edge_index
-                fname = osp.join(self.processed_dir, embed_fname)
                 data = {'embeddings': Data(x=embed, edge_index=edges),
                         'Drug_ID': row['Drug_ID']}
-                torch.save(data, fname)
+                torch.save(data, osp.join(self.processed_dir, embed_fname))
+
             # Add the embed filename to the master file
             raw['drug_embed_fname'].loc[idx] = embed_fname
 
         if self.test:
-            fname = osp.join(self.processed_dir,
-                             (f'master_test_{self.dataset_name}.csv'))
+            raw.to_csv(self.master_test_filename, index=False)
         else:
-            fname = osp.join(self.processed_dir,
-                             f'master_{self.dataset_name}.csv')
-
-        raw.to_csv(fname, index=False)
+            raw.to_csv(self.master_filename, index=False)
 
     def len(self):
 
@@ -151,7 +141,18 @@ class BindingAffinityDataset(Dataset):
 
     def get(self, idx):
 
-        filename = self.processed_file_names[idx]
-        data = torch.load(filename)
+        if self.test:
+            master = pd.read_csv(self.master_test_filename)
+        else:
+            master = pd.read_csv(self.master_filename)
 
-        return [data['drug'], data['protein']], data['log_y']
+        prot_embed_fname = osp.join(self.processed_dir,
+                                    master.iloc[idx]['prot_embed_fname'])
+        prot_data = torch.load(prot_embed_fname)
+
+        drug_embed_fname = osp.join(self.processed_dir,
+                                    master.iloc[idx]['drug_embed_fname'])
+        drug_data = torch.load(drug_embed_fname)
+        log_y = master.iloc[idx]['log_y']
+
+        return [drug_data['embeddings'], prot_data['embeddings']], log_y
