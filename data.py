@@ -131,7 +131,16 @@ class BindingAffinityDataset(Dataset):
 
     def len(self):
 
-        return len(self.processed_file_names)
+        if self.partition == 'train':
+            n = len(self.train_ids)
+        elif self.partition == 'valid':
+            n = len(self.valid_ids)
+        elif self.partition == 'test':
+            n = len(self.test_ids)
+        else:
+            n = len(self.raw_data.index)
+
+        return n
 
     def get(self, idx):
 
