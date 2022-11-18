@@ -1,5 +1,4 @@
 import os.path as osp
-from glob import glob
 import torch
 from torch_geometric.data import Dataset
 from tdc.multi_pred import DTI
@@ -9,7 +8,7 @@ from torch_geometric.utils import from_smiles
 from torch_geometric.data import Data
 import numpy as np
 from tqdm import tqdm
-import pandas as pd
+import random
 
 
 def edges_from_protein_seequence(prot_seq):
@@ -34,19 +33,12 @@ def edges_from_protein_seequence(prot_seq):
 
 class BindingAffinityDataset(Dataset):
 
-    def __init__(self, root, dataset_name='DAVIS', test=False):
+    def __init__(self, root, dataset_name='DAVIS', partition='train'):
         """
         """
-        self.test = test
+        self.partition = partition
         self.dataset_name = dataset_name
         self.raw_file_name = f'{dataset_name}.tab'
-
-        self.master_test_filename = osp.join(root,
-                                             (f'master_test_'
-                                              f'{self.dataset_name}.csv'))
-
-        self.master_filename = osp.join(root,
-                                        f'master_{self.dataset_name}.csv')
 
         super(BindingAffinityDataset, self).__init__(root, None, None)
 
@@ -57,53 +49,63 @@ class BindingAffinityDataset(Dataset):
     @property
     def processed_file_names(self):
 
-        if self.test:
-            self.master = pd.read_csv(self.master_test_filename)
-        else:
-            self.master = pd.read_csv(self.master_filename)
-
-        prot_ids = self.master['Target_ID'].unique()
-        prot_embed_fnames = [f'{id}_embedded.pt' for id in prot_ids]
-        drug_ids = self.master['Drug_ID'].unique()
-        drug_embed_fnames = [f'{id}_embedded.pt' for id in drug_ids]
+        prot_embed_fnames = [self._build_embed_fname(id) for id in self.prots]
+        drug_embed_fnames = [self._build_embed_fname(id) for id in self.drugs]
 
         return prot_embed_fnames + drug_embed_fnames
 
     def download(self):
 
-        raw_data = DTI(name=self.dataset_name, path=self.raw_dir)
-        split = raw_data.get_split()
-        self.raw_train = split['train']
-        self.raw_test = split['test']
+        raw = DTI(name=self.dataset_name, path=self.raw_dir)
+        self.raw_data = raw.get_data()
+        self.drugs = list(self.raw_data['Drug_ID'].unique())
+        self.n_drug = len(self.drugs)
+        self.prots = list(self.raw_data['Target_ID'].unique())
+        self.n_prot = len(self.prots)
+        self.n_total = self.n_drug + self.n_prot
+        # Assume that drugs are novel and searched for while proteins are known
+        # partition data on the drugs so that drugs in train
+        # are not in valid or test, and drugs in valid are not in test
+        n_train = int(round(self.n_drug * 0.7))
+        n_valid = int(round(self.n_drug * 0.1))
+        self.train_drugs = random.sample(self.drugs, n_train)
+        not_train_drugs = list(np.setdiff1d(self.drugs, self.train_drugs))
+        self.valid_drugs = random.sample(not_train_drugs, n_valid)
+        self.test_drugs = list(np.setdiff1d(not_train_drugs, self.valid_drugs))
+
+        self.train_ids = []
+        for drug in self.train_drugs:
+            self.train_ids += \
+                list(self.raw_data.index[self.raw_data['Drug_ID'] == drug])
+
+        self.valid_ids = []
+        for drug in self.valid_drugs:
+            self.valid_ids += \
+                list(self.raw_data.index[self.raw_data['Drug_ID'] == drug])
+
+        self.test_ids = []
+        for drug in self.test_drugs:
+            self.test_ids += \
+                list(self.raw_data.index[self.raw_data['Drug_ID'] == drug])
+
+    def _build_embed_fname(self, ID):
+        return f'{ID}_embedded.pt'
 
     def process(self):
 
         prot_model = ProteinBertModel.from_pretrained('bert-base')
         prot_tokenizer = TAPETokenizer(vocab='iupac')
-        # drug_model = AutoModelWithLMHead.from_pretrained(
-        #    "seyonec/ChemBERTa_zinc250k_v2_40k")
         drug_model = AutoModel.from_pretrained(
             "seyonec/ChemBERTa_zinc250k_v2_40k")
         drug_tokenizer = AutoTokenizer.from_pretrained(
             "seyonec/ChemBERTa_zinc250k_v2_40k")
 
-        if self.test:
-            raw = self.raw_test
-        else:
-            raw = self.raw_train
+        processed_prots, processed_drugs = [], []
 
-        raw['prot_embed_fname'] = ''
-        raw['drug_embed_fname'] = ''
-        raw['log_y'] = np.nan
+        for idx, row in tqdm(self.raw_data.iterrows(), total=self.n_total):
 
-        for idx, row in tqdm(raw.iterrows(), total=raw.shape[0]):
-
-            raw['log_y'].loc[idx] = np.log(row['Y'])
-
-            embed_fname = f'{row["Target_ID"]}_embedded.pt'
             # Only embed a protein if it hasn't already been embedded and saved
-            # import ipdb; ipdb.set_trace()
-            if embed_fname not in raw['prot_embed_fname'].to_list():
+            if row["Target_ID"] not in processed_prots:
 
                 token_ids = torch.tensor(
                     [prot_tokenizer.encode(row['Target'])])
@@ -111,29 +113,21 @@ class BindingAffinityDataset(Dataset):
                 edges = edges_from_protein_seequence(row['Target'])
                 data = {'embeddings': Data(x=embed, edge_index=edges),
                         'Target_ID': row['Target_ID']}
-                torch.save(data, osp.join(self.processed_dir, embed_fname))
+                fname = self._build_embed_fname(row["Target_ID"])
+                torch.save(data, osp.join(self.processed_dir, fname))
+                processed_prots.append(row['Target_ID'])
 
-            # Add the embed filename to the master file
-            raw['prot_embed_fname'].loc[idx] = embed_fname
-
-            embed_fname = f'{row["Drug_ID"]}_embedded.pt'
             # Only embed a drug if it hasn't already been embedded and saved
-            if embed_fname not in raw['drug_embed_fname'].to_list():
+            if row['Drug_ID'] not in processed_drugs:
 
                 token_ids = torch.tensor([drug_tokenizer.encode(row['Drug'])])
                 embed = drug_model(token_ids).last_hidden_state.squeeze()
                 edges = from_smiles(row['Drug']).edge_index
                 data = {'embeddings': Data(x=embed, edge_index=edges),
                         'Drug_ID': row['Drug_ID']}
-                torch.save(data, osp.join(self.processed_dir, embed_fname))
-
-            # Add the embed filename to the master file
-            raw['drug_embed_fname'].loc[idx] = embed_fname
-
-        if self.test:
-            raw.to_csv(self.master_test_filename, index=False)
-        else:
-            raw.to_csv(self.master_filename, index=False)
+                fname = self._build_embed_fname(row["Drug_ID"])
+                torch.save(data, osp.join(self.processed_dir, fname))
+                processed_drugs.append(row['Drug_ID'])
 
     def len(self):
 
@@ -141,18 +135,23 @@ class BindingAffinityDataset(Dataset):
 
     def get(self, idx):
 
-        if self.test:
-            master = pd.read_csv(self.master_test_filename)
+        if self.partition == 'train':
+            row = self.raw_data.loc[self.train_ids[idx]]
+        elif self.partition == 'valid':
+            row = self.raw_data.loc[self.valid_ids[idx]]
+        elif self.partition == 'test':
+            row = self.raw_data.loc[self.test_ids[idx]]
         else:
-            master = pd.read_csv(self.master_filename)
+            row = self.raw_data.loc[self.raw_data.index[idx]]
 
         prot_embed_fname = osp.join(self.processed_dir,
-                                    master.iloc[idx]['prot_embed_fname'])
+                                    self._build_embed_fname(row["Target_ID"]))
         prot_data = torch.load(prot_embed_fname)
 
         drug_embed_fname = osp.join(self.processed_dir,
-                                    master.iloc[idx]['drug_embed_fname'])
+                                    self._build_embed_fname(row["Drug_ID"]))
         drug_data = torch.load(drug_embed_fname)
-        log_y = master.iloc[idx]['log_y']
 
-        return [drug_data['embeddings'], prot_data['embeddings']], log_y
+        log_y = np.log(row['Y'])
+
+        return drug_data['embeddings'], prot_data['embeddings'], log_y
