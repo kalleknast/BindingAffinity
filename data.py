@@ -6,29 +6,10 @@ from tape import ProteinBertModel, TAPETokenizer
 from transformers import AutoModel, AutoTokenizer
 from torch_geometric.utils import from_smiles
 from torch_geometric.data import Data
+from utils import edges_from_protein_seequence, smiles_edges_to_token_edges, get_vocab
 import numpy as np
 from tqdm import tqdm
 import random
-
-
-def edges_from_protein_seequence(prot_seq):
-    """
-    Since we only have the primary protein sequence we only know of the peptide
-    bonds between amino acids. I.e. only amino acids linked in the primary
-    sequence will have edges between them.
-    """
-    n = len(prot_seq)
-    # first row in COO format
-    # each node is connected to left and right except the first an last.
-    row0 = np.repeat(np.arange(n), 2)[1:-1]
-    # second row in COO format
-    row1 = row0.copy()
-    for i in range(0, len(row0), 2):
-        row1[i], row1[i+1] = row1[i+1], row1[i]
-
-    edge_index = torch.tensor([row0, row1], dtype=torch.long)
-
-    return edge_index
 
 
 class BindingAffinityDataset(Dataset):
@@ -100,6 +81,7 @@ class BindingAffinityDataset(Dataset):
         drug_tokenizer = AutoTokenizer.from_pretrained(
             "seyonec/ChemBERTa_zinc250k_v2_40k")
 
+        vocab, reverse_vocab = get_vocab()
         processed_prots, processed_drugs = [], []
 
         for idx, row in tqdm(self.raw_data.iterrows(), total=self.n_total):
@@ -122,7 +104,10 @@ class BindingAffinityDataset(Dataset):
 
                 token_ids = torch.tensor([drug_tokenizer.encode(row['Drug'])])
                 embed = drug_model(token_ids).last_hidden_state.squeeze()
-                edges = from_smiles(row['Drug']).edge_index
+                edges, index_map = smiles_edges_to_token_edges(row['Drug'],
+                                                               drug_tokenizer,
+                                                               reverse_vocab)
+                embed = embed[index_map['keep']]
                 data = {'embeddings': Data(x=embed, edge_index=edges),
                         'Drug_ID': row['Drug_ID']}
                 fname = self._build_embed_fname(row["Drug_ID"])

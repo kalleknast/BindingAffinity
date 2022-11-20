@@ -1,4 +1,5 @@
 import torch
+import sys
 import numpy as np
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import GCNConv, BatchNorm, Linear
@@ -76,6 +77,7 @@ def train(data_loader):
         loss.backward()  # Derive gradients.
         optimizer.step()  # Update parameters based on gradients.
         optimizer.zero_grad()  # Clear gradients.
+        sys.stdout.flush()
 
     print()
 
@@ -96,8 +98,8 @@ def evaluate(data_loader, partition='valid'):
 for epoch in range(1, 11):
 
     train(data_loader)
-    valid_mse = np.mean(evaluate(data_loader, partition='valid'))
     train_mse = np.mean(evaluate(data_loader, partition='train'))
+    valid_mse = np.mean(evaluate(data_loader, partition='valid'))
 
-    print(f'Epoch: {epoch:03d}, train MSE: {valid_mse:.4f}'
+    print(f'Epoch: {epoch:03d}, train MSE: {train_mse:.4f}'
           f', valid MSE: {valid_mse:.4f}')
