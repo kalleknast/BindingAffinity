@@ -1,25 +1,28 @@
-import os.path as osp
+import random
 import torch
-from torch_geometric.data import Dataset
+import numpy as np
+import os.path as osp
+from tqdm import tqdm
 from tdc.multi_pred import DTI
+from torch_geometric.data import Dataset, Data
 from tape import ProteinBertModel, TAPETokenizer
 from transformers import AutoModel, AutoTokenizer
-from torch_geometric.utils import from_smiles
-from torch_geometric.data import Data
-from utils import edges_from_protein_seequence, smiles_edges_to_token_edges, get_vocab
-import numpy as np
-from tqdm import tqdm
-import random
+from utils import edges_from_protein_seequence
+from utils import smiles_edges_to_token_edges, get_vocab
 
 
 class BindingAffinityDataset(Dataset):
 
-    def __init__(self, root, dataset_name='DAVIS', partition='train'):
+    def __init__(self, root,
+                 dataset_name='DAVIS',
+                 partition='train',
+                 network_type='gcn'):
         """
         """
         self.partition = partition
         self.dataset_name = dataset_name
         self.raw_file_name = f'{dataset_name}.tab'
+        self.network_type = network_type
 
         super(BindingAffinityDataset, self).__init__(root, None, None)
 
@@ -80,8 +83,8 @@ class BindingAffinityDataset(Dataset):
             "seyonec/ChemBERTa_zinc250k_v2_40k")
         drug_tokenizer = AutoTokenizer.from_pretrained(
             "seyonec/ChemBERTa_zinc250k_v2_40k")
-
         vocab, reverse_vocab = get_vocab()
+
         processed_prots, processed_drugs = [], []
 
         for idx, row in tqdm(self.raw_data.iterrows(), total=self.n_total):
@@ -107,9 +110,11 @@ class BindingAffinityDataset(Dataset):
                 edges, index_map = smiles_edges_to_token_edges(row['Drug'],
                                                                drug_tokenizer,
                                                                reverse_vocab)
-                embed = embed[index_map['keep']]
-                data = {'embeddings': Data(x=embed, edge_index=edges),
-                        'Drug_ID': row['Drug_ID']}
+                # embed = embed[index_map['keep']]
+                data = {'embeddings': Data(x=embed,
+                                           edge_index=torch.tensor(edges)),
+                        'Drug_ID': row['Drug_ID'],
+                        'node_ids': index_map['keep'].values.astype('bool')}
                 fname = self._build_embed_fname(row["Drug_ID"])
                 torch.save(data, osp.join(self.processed_dir, fname))
                 processed_drugs.append(row['Drug_ID'])
@@ -145,6 +150,14 @@ class BindingAffinityDataset(Dataset):
         drug_embed_fname = osp.join(self.processed_dir,
                                     self._build_embed_fname(row["Drug_ID"]))
         drug_data = torch.load(drug_embed_fname)
+
+        if self.network_type == 'gcn':  # remove non-node embeddings
+            node_ids = drug_data['node_ids']
+            drug_data['embeddings'].x = drug_data['embeddings'].x[node_ids]
+        elif self.network_type == 'mlp':  # keep both bond/edge and node embeds
+            pass
+        else:
+            raise ValueError('Unknown network type')
 
         log_y = np.log(row['Y'])
 

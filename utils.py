@@ -1,20 +1,9 @@
 import torch
-import pandas as pd
 import numpy as np
+import pandas as pd
 from tdc.multi_pred import DTI
 from transformers import AutoTokenizer
 from torch_geometric.utils import from_smiles
-
-
-# def edge_type(edge, i0, i1):
-#
-#     check = np.logical_and(edge >= i0, edge <= i1)
-#     if check.all():
-#         edge_type = 'within'  # within node
-#     elif check.any():
-#         edge_type = 'between'
-#     else:
-#         edge_type = ''
 
 
 def get_node_edges(smiles_edges, index_map):
@@ -35,25 +24,6 @@ def get_node_edges(smiles_edges, index_map):
 
     return np.array(node_edges)
 
-
-# def smiles_edges_to_token_edges(token_ids, rev_vocab, smiles):
-#     """
-#     """
-#     index_map = get_indexmap(token_ids, rev_vocab, smiles)
-#     smiles_edges = from_smiles(smiles).edge_index
-#     token_edges = [[], []]
-#     for i, row in index_map[index_map['keep']].iterrows():
-#
-#         for edge in smiles_edges.T:
-#             e_type = edge_type(edge, row['smiles_i0'], row['smiles_i1'])
-#             if e_type == 'within':
-#                 pass
-#             elif e_type == 'between':
-#                 check = np.logical_and(edge >= i0, edge <= i1)
-#                 if check[0]:
-#                     # from row node to another
-#                 else:
-#                     # from another to row node
 
 def smiles_edges_to_token_edges(smiles, tokenizer, reverse_vocab):
     """
@@ -97,8 +67,8 @@ def get_indexmap(token_ids, rev_vocab, smiles):
                                     True, smiles_i0, smiles_i1)
                 token_i += 1
             else:
-                raise ValueError('Node token not found in SMILES.\n'
-                                 'Check that token_ids are computed from smiles.')
+                raise ValueError('Node token not found in SMILES.\nCheck that '
+                                 'token_ids are computed from smiles.')
         else:
             index_map.loc[i] = (-1, token, token_id, False, -1, -1)
 
