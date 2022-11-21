@@ -50,4 +50,5 @@ python gcn_model.py
  - [x] see if it is possible to remove the master files in `BindingAffinityDataset()`.
  - [x] Sometimes `torch_geometric.utils.from_smiles` returns `edge_index` with an edge to one more node than the number of nodes in the embedding. This is probably because of a discrepancy between the BPE tokenizer (`transformers.AutoTokenizer.from_pretrained("seyonec/ChemBERTa_zinc250k_v2_40k")`) and the atoms in the SMILES string.
  - [ ] See if actual `edge_index` for the proteins can be downloaded from the [UniProt](https://www.uniprot.org/) protein database.
+ - [ ] Add residual connections to the GCN layers.
 
