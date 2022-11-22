@@ -73,7 +73,7 @@ class BindingAffinityDataset(Dataset):
                 list(self.raw_data.index[self.raw_data['Drug_ID'] == drug])
 
     def _build_embed_fname(self, ID):
-        return f'{ID}_embedded.pt'
+        return f'{self.dataset_name}_{ID}_embedded.pt'
 
     def process(self):
 
@@ -110,7 +110,6 @@ class BindingAffinityDataset(Dataset):
                 edges, index_map = smiles_edges_to_token_edges(row['Drug'],
                                                                drug_tokenizer,
                                                                reverse_vocab)
-                # embed = embed[index_map['keep']]
                 data = {'embeddings': Data(x=embed,
                                            edge_index=torch.tensor(edges)),
                         'Drug_ID': row['Drug_ID'],
@@ -159,6 +158,25 @@ class BindingAffinityDataset(Dataset):
         else:
             raise ValueError('Unknown network type')
 
-        log_y = np.log(row['Y'])
+        if self.dataset_name == 'DAVIS':
+            # see https://github.com/hkmztrk/DeepDTA/blob/master/data/README.md
+            y = float(- np.log(row['Y'] / 1e9))
+        elif self.dataset_name == 'KIBA':
+            # The distribution of the KIBA scores is depicted in the right
+            # panel of Figure 1A. He et al. (2017) pre-processed
+            # the KIBA scores as follows: (i) for each KIBA score, its negative
+            # was taken, (ii) the minimum value among the negatives was chosen
+            # and (iii) the absolute value of the minimum was added to all
+            # negative scores, thus constructing the final form of
+            # the KIBA scores.
+            y = float(- row['Y'] + self.raw_data['Y'].max())
+        # import ipdb; ipdb.set_trace()
+        meta = {'data_drug_id': str(drug_data['Drug_ID']),
+                'data_prot_id': str(prot_data['Target_ID']),
+                'raw_Drug_ID': str(row['Drug_ID']),
+                'raw_Drug': row['Drug'],
+                'raw_Target_ID': str(row['Target_ID']),
+                'raw_Target': row['Target'],
+                'raw_Y': row['Y']}
 
-        return drug_data['embeddings'], prot_data['embeddings'], log_y
+        return drug_data['embeddings'], prot_data['embeddings'], y, meta
