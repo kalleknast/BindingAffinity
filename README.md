@@ -38,7 +38,7 @@ python gcn_model.py
 
 Train and evaluate the MLP model:
 ```terminal
-python gcn_model.py
+python mlp_model.py
 ```
 
  
