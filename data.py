@@ -3,15 +3,183 @@ import torch
 import numpy as np
 import os.path as osp
 from tqdm import tqdm
+import pandas as pd
+import json
 from tdc.multi_pred import DTI
-from torch_geometric.data import Dataset, Data
+from torch.utils.data import Dataset
+from torch_geometric.data import Dataset as GraphDataset
+from torch_geometric.data import Data
 from tape import ProteinBertModel, TAPETokenizer
 from transformers import AutoModel, AutoTokenizer
 from utils import edges_from_protein_seequence
 from utils import smiles_edges_to_token_edges, get_vocab
 
 
-class BindingAffinityDataset(Dataset):
+def get_dictionary(fname, raw_data, kind):
+    """
+    """
+    if not osp.isfile(fname):
+        entities = raw_data[kind].unique()
+        vocab = list(set(entities.sum()))
+        dictionary = {t: i+1 for i, t in enumerate(vocab)}
+        with open(fname, 'w') as f:
+            json.dump(dictionary, f)
+    else:
+        with open(fname, 'r') as f:
+            dictionary = json.load(f)
+
+    return dictionary
+
+
+def encode_sequence(sequence, dictionary, encoded_len):
+    """
+    """
+    enc = np.zeros(encoded_len, dtype=np.int32)
+    for i, c in enumerate(sequence):
+        if i == encoded_len - 1:
+            break
+        enc[i] = dictionary[c]
+
+    return enc
+
+
+class DeepDTADatasetSimple(Dataset):
+    def __init__(self, partition='train'):
+
+        self.partition = partition
+        train_df = pd.read_pickle('data/processed/train_data_fold1.pkl')
+        valid_df = pd.read_pickle('data/processed/valid_data_fold1.pkl')
+        self.train_x = [np.stack(train_df['Drug_enc']).astype(np.int32),
+                        np.stack(train_df['Prot_enc']).astype(np.int32)]
+        self.train_y = np.stack(train_df['Y']).reshape((-1, 1))
+        self.valid_x = [np.stack(valid_df['Drug_enc']).astype(np.int32),
+                        np.stack(valid_df['Prot_enc']).astype(np.int32)]
+        self.valid_y = np.stack(valid_df['Y']).reshape((-1, 1))
+        self.len_drug_vocab = 64
+        self.len_prot_vocab = 25
+
+    def __len__(self):
+        if self.partition == 'train':
+            return self.train_y.shape[0]
+        elif self.partition == 'valid':
+            return self.valid_y.shape[0]
+
+    def __getitem__(self, idx):
+
+        if self.partition == 'train':
+            xd, xp = self.train_x[0][idx], self.train_x[1][idx]
+            y = self.train_y[idx]
+        elif self.partition == 'valid':
+            xd, xp = self.valid_x[0][idx], self.valid_x[1][idx]
+            y = self.valid_y[idx]
+
+        return torch.tensor(xd), torch.tensor(xp), torch.tensor(y)
+
+
+class DeepDTADataset(Dataset):
+    def __init__(self, data_dir, dataset='KIBA', partition='train'):
+
+        self.partition = partition
+        self.raw_dir = data_dir
+        self.dataset_name = dataset
+        self.data = pd.read_csv(osp.join(data_dir,
+                                f'DeepDTA_{dataset}.tsv'), sep='\t')
+        self.y = np.stack(self.data['Y']).astype(np.int32).reshape((-1, 1))
+
+        # Prepare or load the dictionaries for drugs and proteins
+        # Drug dictionary
+        fname = osp.join(self.raw_dir, f'drug_dict_{self.dataset_name}.json')
+        self.drug_dict = get_dictionary(fname, self.data, 'Drug')
+        self.len_drug_vocab = len(self.drug_dict)
+        # Protein dictionary
+        fname = osp.join(self.raw_dir, f'prot_dict_{self.dataset_name}.json')
+        self.prot_dict = get_dictionary(fname, self.data, 'Protein')
+        self.len_prot_vocab = len(self.prot_dict)
+
+        if self.dataset_name == 'DAVIS':
+            # DAVIS: 0-pad SMILES to 85 and proteins to 1200. Truncate above.
+            self.drug_encoded_len = 85
+            self.prot_encoded_len = 1200
+        elif self.dataset_name == 'KIBA':
+            # KIBA: 0-pad smiles to 100 and proteins to 1000. Truncate above.
+            self.drug_encoded_len = 100
+            self.prot_encoded_len = 1000
+
+        # Encode the SMLILES and protein strings
+        # Drugs/SMILES
+        self.drugs = self.data['Drug'].unique()  # Unique drugs
+        self.data['Drug_enc'] = [np.zeros(self.drug_encoded_len,
+                                          dtype=np.int32)] * self.data.shape[0]
+        for drug in self.drugs:
+            enc = encode_sequence(drug, self.drug_dict, self.drug_encoded_len)
+            self.data['Drug_enc'] = np.where(self.data['Drug'] == drug,
+                                             pd.Series([enc]),
+                                             self.data['Drug_enc'])
+        # Proteins
+        self.prots = self.data['Protein'].unique()  # Unique proteins
+        self.data['Prot_enc'] = [np.zeros(self.prot_encoded_len,
+                                          dtype=np.int32)] * self.data.shape[0]
+        for prot in self.prots:
+            enc = encode_sequence(prot, self.prot_dict, self.prot_encoded_len)
+            self.data['Prot_enc'] = np.where(self.data['Protein'] == prot,
+                                             pd.Series([enc]),
+                                             self.data['Prot_enc'])
+
+        # Data split: 70/15/15
+        self.drug_IDs = self.data['Drug_ID'].unique()
+        self.n_drugs = self.drug_IDs.shape[0]
+        # 70% to training
+        self.n_train_drugs = int(round(self.n_drugs * 0.7))
+        ids = list(range(self.n_drugs))
+        np.random.shuffle(ids)
+        self.train_drugs = self.drug_IDs[ids[:self.n_train_drugs]]
+        self.train_ids = []
+        for drug in self.train_drugs:
+            self.train_ids += \
+                list(self.data.index[self.data['Drug_ID'] == drug])
+        # 15% to validation
+        rem_drugs = np.setdiff1d(self.drug_IDs, self.train_drugs)
+        self.n_valid_drugs = int(round(self.n_drugs * 0.15))
+        ids = list(range(len(rem_drugs)))
+        np.random.shuffle(ids)
+        self.valid_drugs = rem_drugs[ids[:self.n_valid_drugs]]
+        self.valid_ids = []
+        for drug in self.valid_drugs:
+            self.valid_ids += \
+                list(self.data.index[self.data['Drug_ID'] == drug])
+        # 15% to test (the rest)
+        self.test_drugs = np.setdiff1d(rem_drugs, self.valid_drugs)
+        self.n_test_drugs = self.test_drugs.shape[0]
+        self.test_ids = []
+        for drug in self.test_drugs:
+            self.test_ids += \
+                list(self.data.index[self.data['Drug_ID'] == drug])
+
+    def __len__(self):
+        if self.partition == 'train':
+            return len(self.train_ids)
+        elif self.partition == 'valid':
+            return len(self.valid_ids)
+        elif self.partition == 'test':
+            return len(self.test_ids)
+
+    def __getitem__(self, idx):
+
+        if self.partition == 'train':
+            idx = self.train_ids[idx]
+        elif self.partition == 'valid':
+            idx = self.valid_ids[idx]
+        elif self.partition == 'test':
+            idx = self.test_ids[idx]
+
+        xd = self.data.loc[idx]['Drug_enc']
+        xp = self.data.loc[idx]['Prot_enc']
+        y = np.array([self.data.loc[idx]['Y']])
+
+        return torch.tensor(xd), torch.tensor(xp), torch.tensor(y)
+
+
+class BindingAffinityDataset(GraphDataset):
 
     def __init__(self, root,
                  dataset_name='DAVIS',
@@ -170,7 +338,7 @@ class BindingAffinityDataset(Dataset):
             # negative scores, thus constructing the final form of
             # the KIBA scores.
             y = float(- row['Y'] + self.raw_data['Y'].max())
-        # import ipdb; ipdb.set_trace()
+
         meta = {'data_drug_id': str(drug_data['Drug_ID']),
                 'data_prot_id': str(prot_data['Target_ID']),
                 'raw_Drug_ID': str(row['Drug_ID']),
