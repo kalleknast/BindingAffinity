@@ -6,7 +6,17 @@ Exploring deep learning for predicting the binding affinity between a small mole
 ### Performance evaluation
 
 #### Data partitioning
-The [Kiba dataset](https://pubs.acs.org/doi/10.1021/ci400709d) is made up of drug-protein pairs labelled with an experimentally measured binding affinity (numerical). The Kiba dataset has 2 068 unique drugs, 229 proteins and 98 545 drug-protein pairs. Thus, each drug (and protein) occurs in multiple different pairs. This suggests three different ways of partitioning the data. 1) split on pairs, where each pair is considered unique, and the data is split by pairs (this is done in [DeepDTA](https://arxiv.org/abs/1801.10193) and [BERT-GCN](https://openreview.net/pdf?id=Zqf6RGp5lqf)). This results in the same drugs (and proteins) occurring in both partitions. 2) split on drugs, where the data is split on the unique drugs so that only proteins occur in both partitions, not drugs. 3) split on proteins, where the data is split on the unique proteins so that only drugs occur in both partitions, not drugs. Splitting on unique drugs and proteins is not feasible since it requires excluding all pairs made up of a drug from one partition and a protein from the other (thus losing a lot of data).
+The [Kiba dataset](https://pubs.acs.org/doi/10.1021/ci400709d) is made up of drug-protein pairs labelled with an experimentally measured binding affinity (numerical). The Kiba dataset has 2 068 unique drugs, 229 proteins and 98 545 drug-protein pairs. Thus, each drug (and protein) occurs in multiple different pairs. This suggests three different ways of partitioning the data. 
+
+ 1) Split on pairs, where each pair is considered unique, and the data is split by pairs (this is done in [DeepDTA](https://arxiv.org/abs/1801.10193) and [BERT-GCN](https://openreview.net/pdf?id=Zqf6RGp5lqf)). This results in the same drugs (and proteins) occurring in both partitions. 
+ 2) Split on drugs, where the data is split on the unique drugs so that only proteins occur in both partitions, not drugs. 
+ 3) Split on proteins, where the data is split on the unique proteins so that only drugs occur in both partitions, not drugs. Splitting on unique drugs and proteins is not feasible since it requires excluding all pairs made up of a drug from one partition and a protein from the other (thus losing a lot of data).
+
+What strategy to use depends on how the model is intended to be used. When using strategy 1) the performance is only relevant to drugs and proteins already present in the training set. This seems unrealistic for practical applications. With strategy 2) (or 3)), the performance is relevant to situations where the drug (or protein) was not present in the training set, but the protein (or drug) was. This seems more realistic.
+
+The performance depends strongly on the chosen method. See, for example, the difference between [DeepDTA models](https://arxiv.org/abs/1801.10193) fitted and evaluated on data split by strategies 1) and 2).
+
+![Evaluation comparison](fig/history_comparision_DeepDTA.png)
 
 
 ### DeepDTA
