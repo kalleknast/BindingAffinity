@@ -5,6 +5,7 @@ import os.path as osp
 from tqdm import tqdm
 import pandas as pd
 import json
+from torch_geometric.utils import from_smiles
 from torch.utils.data import Dataset
 from torch_geometric.data import Dataset as GraphDataset
 from torch_geometric.data import Data
@@ -12,6 +13,24 @@ from tape import ProteinBertModel, TAPETokenizer
 from transformers import AutoModel, AutoTokenizer
 from utils import edges_from_protein_seequence
 from utils import smiles_edges_to_token_edges, get_vocab
+
+
+# Drug dictionary from DeepDTA
+DTA_DRUG_DICT = {"#": 29, "%": 30, ")": 31, "(": 1, "+": 32, "-": 33, "/": 34,
+                 ".": 2, "1": 35, "0": 3, "3": 36, "2": 4, "5": 37, "4": 5,
+                 "7": 38, "6": 6, "9": 39, "8": 7, "=": 40, "A": 41, "@": 8,
+                 "C": 42, "B": 9, "E": 43, "D": 10, "G": 44, "F": 11, "I": 45,
+                 "H": 12, "K": 46, "M": 47, "L": 13, "O": 48, "N": 14, "P": 15,
+                 "S": 49, "R": 16, "U": 50, "T": 17, "W": 51, "V": 18, "Y": 52,
+                 "[": 53, "Z": 19, "]": 54, "\\": 20, "a": 55, "c": 56,
+                 "b": 21, "e": 57, "d": 22, "g": 58, "f": 23, "i": 59, "h": 24,
+                 "m": 60, "l": 25, "o": 61, "n": 26, "s": 62, "r": 27, "u": 63,
+                 "t": 28, "y": 64}
+# Protein dictionary from DeepDTA
+DTA_PROT_DICT = {"A": 1, "C": 2, "B": 3, "E": 4, "D": 5, "G": 6,
+                 "F": 7, "I": 8, "H": 9, "K": 10, "M": 11, "L": 12,
+                 "O": 13, "N": 14, "Q": 15, "P": 16, "S": 17, "R": 18,
+                 "U": 19, "T": 20, "W": 21, "V": 22, "Y": 23, "X": 24, "Z": 25}
 
 
 def get_dictionary(fname, raw_data, kind):
@@ -30,21 +49,38 @@ def get_dictionary(fname, raw_data, kind):
     return dictionary
 
 
+def add_encoded_column(data, kind, mol_dict, encoded_len):
+    """
+    In-place
+    """
+    enc_col = f'{kind[:4]}_enc'
+    mols = data[kind].unique()  # Unique drugs or prot
+    data[enc_col] = [np.zeros(encoded_len,
+                              dtype=np.int32)] * data.shape[0]
+    for mol in mols:
+        enc = encode_sequence(mol, mol_dict, encoded_len)
+        data[enc_col] = np.where(data[kind] == mol,
+                                 pd.Series([enc]), data[enc_col])
+
+
 def encode_sequence(sequence, dictionary, encoded_len):
     """
     """
     enc = np.zeros(encoded_len, dtype=np.int32)
-    for i, c in enumerate(sequence):
-        if i == encoded_len - 1:
-            break
+    max_len = min(encoded_len, len(sequence))
+
+    for i, c in enumerate(sequence[:max_len]):
         enc[i] = dictionary[c]
 
     return enc
 
 
-def partition_data(data_splits, data):
+def partition_data(data_splits, data, kind='drug'):
     """
-    Splits on the unique drugs,
+    data_splits : data_splits should sum to 1
+    data        :
+    kind        : "pair" (splits on pairs, DeepDTA-style) or
+                  "drugs" (splits on the unique drugs)
 
     Assume that drugs are novel and searched for while proteins are known
     partition data on the drugs so that drugs in train are not in valid or
@@ -54,24 +90,56 @@ def partition_data(data_splits, data):
 
     drugs = list(data['Drug_ID'].unique())
     n_drug = len(drugs)
-    n_train = int(round(n_drug * data_splits[0]))
-    n_valid = int(round(n_drug * data_splits[1]))
-    train = {'drugs': random.sample(drugs, n_train)}
-    not_train_drugs = list(np.setdiff1d(drugs, train['drugs']))
-    valid = {'drugs': random.sample(not_train_drugs, n_valid)}
-    test = {'drugs': list(np.setdiff1d(not_train_drugs, valid['drugs']))}
 
-    train['ids'] = []
-    for drug in train['drugs']:
-        train['ids'] += list(data.index[data['Drug_ID'] == drug])
+    if kind == 'drug':
+        n_train = int(round(n_drug * data_splits[0]))
+        n_valid = int(round(n_drug * data_splits[1]))
+        train = {'drugs': random.sample(drugs, n_train)}
+        not_train_drugs = list(np.setdiff1d(drugs, train['drugs']))
+        valid = {'drugs': random.sample(not_train_drugs, n_valid)}
+        test = {'drugs': list(np.setdiff1d(not_train_drugs, valid['drugs']))}
 
-    valid['ids'] = []
-    for drug in valid['drugs']:
-        valid['ids'] += list(data.index[data['Drug_ID'] == drug])
+        train['ids'] = []
+        for drug in train['drugs']:
+            train['ids'] += list(data.index[data['Drug_ID'] == drug])
 
-    test['ids'] = []
-    for drug in test['drugs']:
-        valid['ids'] += list(data.index[data['Drug_ID'] == drug])
+        valid['ids'] = []
+        for drug in valid['drugs']:
+            valid['ids'] += list(data.index[data['Drug_ID'] == drug])
+
+        test['ids'] = []
+        for drug in test['drugs']:
+            test['ids'] += list(data.index[data['Drug_ID'] == drug])
+
+    elif kind == 'pair':
+        n = len(data)
+        n_train = int(round(n * data_splits[0]))
+        n_valid = int(round(n * data_splits[1]))
+        n_test = int(round(n * data_splits[2]))
+        ids = np.arange(n, dtype=int)
+        random.shuffle(ids)
+        train = {'ids': ids[:n_train]}
+        train['drugs'] = data.loc[train['ids'], 'Drug_ID'].unique()
+        valid = {'ids': ids[n_train:n_train+n_valid]}
+        valid['drugs'] = data.loc[valid['ids'], 'Drug_ID'].unique()
+        test = {'ids': ids[n_train+n_valid:]}
+        test['drugs'] = data.loc[test['ids'], 'Drug_ID'].unique()
+
+    return train, valid, test, n_drug
+
+
+def partition_data_DTA(data):
+    """
+    """
+    drugs = list(data['Drug_ID'].unique())
+    n_drug = len(drugs)
+
+    n_train = 78836
+    n_valid = 19709
+
+    train = {'ids': np.arange(n_train, dtype=int)}
+    valid = {'ids': np.arange(n_valid, n_train+n_valid, dtype=int)}
+    test = {'ids': np.arange(0, dtype=int)}
 
     return train, valid, test, n_drug
 
@@ -80,7 +148,7 @@ class DeepDTADataset(Dataset):
     def __init__(self, partition='train', fold=1):
         """
         The dataset (with same folds) from https://github.com/hkmztrk/DeepDTA
-        partition   : 'train' | 'valid' | 'test'
+        partition   : 'train' | 'valid'
         fold        : (int) 1, 2, 3, 4 or 5
         """
 
@@ -105,44 +173,53 @@ class DeepDTADataset(Dataset):
     def __getitem__(self, idx):
 
         if self.partition == 'train':
-            xd, xp = self.train_x[0][idx], self.train_x[1][idx]
-            y = self.train_y[idx]
+            xd = torch.tensor(self.train_x[0][idx])
+            xp = torch.tensor(self.train_x[1][idx])
+            y = torch.tensor(self.train_y[idx], dtype=torch.float32)
         elif self.partition == 'valid':
-            xd, xp = self.valid_x[0][idx], self.valid_x[1][idx]
-            y = self.valid_y[idx]
+            xd = torch.tensor(self.valid_x[0][idx])
+            xp = torch.tensor(self.valid_x[1][idx])
+            y = torch.tensor(self.valid_y[idx], dtype=torch.float32)
 
-        return torch.tensor(xd), torch.tensor(xp), torch.tensor(y)
+        return xd, xp, y
 
 
 class EmbeddingDataset(Dataset):
-    def __init__(self, data_dir, dataset='KIBA',
-                 partition='train', data_splits=(.8, .2, 0.)):
+    def __init__(self, root, dataset_name='KIBA', partition='train',
+                 data_splits=(.8, .2, 0.), partition_kind='drug'):
         """
         The dataset is from https://github.com/hkmztrk/DeepDTA
 
         Arguments
         --------
-        data_dir    : Where the dataset (e.g. raw/DeepDTA_KIBA.tsv) is stored.
-        partition   : 'train' | 'valid' | 'test'.
-        dataSet     : 'KIBA' | 'DAVIS' (only KIBA is currently available).
-        data_splits : splits on the unique drugs, should sum to 1.
+        root            : Root dir, the dataset shuld be stored in root/raw
+                          E.g. root/raw/DeepDTA_KIBA.tsv) is stored.
+        partition       : 'train' | 'valid' | 'test'.
+        dataset_name    : 'KIBA' | 'DAVIS' (only KIBA is currently available).
+        data_splits     : splits on the unique drugs, should sum to 1.
+        partition_kind  : "pair" or "drug". How to split the data.
+                          "pair" - splits on drug-protein pairs
+                          "drug" - splits on the unique drugs
         """
 
         self.partition = partition
-        self.raw_dir = data_dir
-        self.dataset_name = dataset
+        self.raw_dir = osp.join(root, 'raw')
+        self.dataset_name = dataset_name
         self.data_splits = data_splits
-        self.data = pd.read_csv(osp.join(data_dir,
-                                f'DeepDTA_{dataset}.tsv'), sep='\t')
+        self.partition_kind = partition_kind
+        self.raw_data = pd.read_csv(osp.join(self.raw_dir,
+                                    f'DeepDTA_{dataset_name}.tsv'), sep='\t')
 
         # Prepare or load the dictionaries for drugs and proteins
         # Drug dictionary
         fname = osp.join(self.raw_dir, f'drug_dict_{self.dataset_name}.json')
-        self.drug_dict = get_dictionary(fname, self.data, 'Drug')
+        self.drug_dict = get_dictionary(fname, self.raw_data, 'Drug')
+        # self.drug_dict = DTA_DRUG_DICT
         self.len_drug_vocab = len(self.drug_dict)
         # Protein dictionary
         fname = osp.join(self.raw_dir, f'prot_dict_{self.dataset_name}.json')
-        self.prot_dict = get_dictionary(fname, self.data, 'Protein')
+        self.prot_dict = get_dictionary(fname, self.raw_data, 'Protein')
+        # self.prot_dict = DTA_PROT_DICT
         self.len_prot_vocab = len(self.prot_dict)
 
         if self.dataset_name == 'DAVIS':
@@ -156,27 +233,20 @@ class EmbeddingDataset(Dataset):
 
         # Encode the SMLILES and protein strings
         # Drugs/SMILES
-        self.drugs = self.data['Drug'].unique()  # Unique drugs
-        self.data['Drug_enc'] = [np.zeros(self.drug_encoded_len,
-                                          dtype=np.int32)] * self.data.shape[0]
-        for drug in self.drugs:
-            enc = encode_sequence(drug, self.drug_dict, self.drug_encoded_len)
-            self.data['Drug_enc'] = np.where(self.data['Drug'] == drug,
-                                             pd.Series([enc]),
-                                             self.data['Drug_enc'])
+        add_encoded_column(self.raw_data, 'Drug',
+                           self.drug_dict, self.drug_encoded_len)
         # Proteins
-        self.prots = self.data['Protein'].unique()  # Unique proteins
-        self.data['Prot_enc'] = [np.zeros(self.prot_encoded_len,
-                                          dtype=np.int32)] * self.data.shape[0]
-        for prot in self.prots:
-            enc = encode_sequence(prot, self.prot_dict, self.prot_encoded_len)
-            self.data['Prot_enc'] = np.where(self.data['Protein'] == prot,
-                                             pd.Series([enc]),
-                                             self.data['Prot_enc'])
+        add_encoded_column(self.raw_data, 'Protein',
+                           self.prot_dict, self.prot_encoded_len)
 
         # Data split
+        # train, valid, test, n_drug = partition_data_DTA(self.raw_data)
+        # self.train_ids = train['ids']
+        # self.valid_ids = valid['ids']
+        # self.test_ids = test['ids']
         train, valid, test, n_drug = partition_data(self.data_splits,
-                                                    self.data)
+                                                    self.raw_data,
+                                                    kind=self.partition_kind)
         self.train_ids, self.train_drugs = train['ids'], train['drugs']
         self.valid_ids, self.valid_drugs = valid['ids'], valid['drugs']
         self.test_ids, self.test_drugs = test['ids'], test['drugs']
@@ -192,108 +262,244 @@ class EmbeddingDataset(Dataset):
     def __getitem__(self, idx):
 
         if self.partition == 'train':
-            idx = self.train_ids[idx]
+            row = self.raw_data.loc[self.train_ids[idx]]
         elif self.partition == 'valid':
-            idx = self.valid_ids[idx]
+            row = self.raw_data.loc[self.valid_ids[idx]]
         elif self.partition == 'test':
-            idx = self.test_ids[idx]
+            row = self.raw_data.loc[self.test_ids[idx]]
 
-        xd = self.data.loc[idx]['Drug_enc']
-        xp = self.data.loc[idx]['Prot_enc']
-        y = np.array([self.data.loc[idx]['Y']])
+        xd = torch.tensor(row['Drug_enc'])
+        xp = torch.tensor(row['Prot_enc'])
+        y = torch.tensor([row['Y']], dtype=torch.float32)
+        meta = {'Drug_ID': str(row['Drug_ID']),
+                'Drug': row['Drug'],
+                'Prot_ID': str(row['Prot_ID']),
+                'Prot': row['Protein'],
+                'Y': row['Y']}
 
-        return torch.tensor(xd), torch.tensor(xp), torch.tensor(y)
+        return xd, xp, y, meta
 
 
-class BertDataset(Dataset):
+# class BertDataset(Dataset):
+#
+#     def __init__(self, root,
+#                  dataset_name='KIBA',
+#                  partition='train',
+#                  data_splits=(.8, .2, 0.)):
+#         """
+#         """
+#         self.partition = partition
+#         self.dataset_name = dataset_name
+#         self.raw_data = pd.read_csv(osp.join(root, 'raw',
+#                                     f'DeepDTA_{dataset_name}.tsv'), sep='\t')
+#         self.processed_dir = osp.join(root, 'processed')
+#         self.data_splits = data_splits
+#         # Split data into train/valid/test sets
+#         train, valid, test, n_drug = partition_data(self.data_splits,
+#                                                     self.raw_data)
+#         self.n_drug = n_drug
+#         self.train_ids, self.train_drugs = train['ids'], train['drugs']
+#         self.valid_ids, self.valid_drugs = valid['ids'], valid['drugs']
+#         self.test_ids, self.test_drugs = test['ids'], test['drugs']
+#
+#     def __len__(self):
+#         if self.partition == 'train':
+#             return len(self.train_ids)
+#         elif self.partition == 'valid':
+#             return len(self.valid_ids)
+#         elif self.partition == 'test':
+#             return len(self.test_ids)
+#
+#     def _build_embed_fname(self, ID):
+#         return f'{self.dataset_name}_{ID}_embedded.pt'
+#
+#     def __getitem__(self, idx):
+#
+#         if self.partition == 'train':
+#             row = self.raw_data.loc[self.train_ids[idx]]
+#         elif self.partition == 'valid':
+#             row = self.raw_data.loc[self.valid_ids[idx]]
+#         elif self.partition == 'test':
+#             row = self.raw_data.loc[self.test_ids[idx]]
+#         else:
+#             row = self.raw_data.loc[self.raw_data.index[idx]]
+#
+#         prot_embed_fname = osp.join(self.processed_dir,
+#                                     self._build_embed_fname(row["Prot_ID"]))
+#         prot_data = torch.load(prot_embed_fname)
+#
+#         drug_embed_fname = osp.join(self.processed_dir,
+#                                     self._build_embed_fname(row["Drug_ID"]))
+#         drug_data = torch.load(drug_embed_fname)
+#
+#         if self.dataset_name == 'DAVIS':
+#             # see https://github.com/hkmztrk/DeepDTA/blob/master/data/README.md
+#             y = torch.tensor(np.array(- np.log(row['Y'] / 1e9)), dtype=torch.float32)
+#         elif self.dataset_name == 'KIBA':
+#             y = torch.tensor(np.array(row['Y']), dtype=torch.float32)
+#
+#         meta = {'Drug_ID': str(drug_data['Drug_ID']),
+#                 'Prot_ID': str(prot_data['Prot_ID']),
+#                 'raw_Drug_ID': str(row['Drug_ID']),
+#                 'Drug': row['Drug'],
+#                 'raw_Prot_ID': str(row['Prot_ID']),
+#                 'Prot': row['Protein'],
+#                 'Y': row['Y']}
+#
+#         return drug_data['embeddings'].x, prot_data['embeddings'].x, y, meta
 
-    def __init__(self, data_dir,
-                 dataset='KIBA',
-                 partition='train',
-                 data_splits=(.8, .2, 0.)):
+
+class HybridDataset(GraphDataset):
+
+    def __init__(self, root, dataset_name='KIBA', partition='train',
+                 data_splits=(.8, .2, 0.), partition_kind='drug'):
         """
+        partition_kind  : "pair" or "drug". How to split the data.
+                          "pair" - splits on drug-protein pairs
+                          "drug" - splits on the unique drugs
         """
         self.partition = partition
-        self.dataset_name = dataset
-        self.data = pd.read_csv(osp.join(data_dir, 'raw',
-                                f'DeepDTA_{dataset}.tsv'), sep='\t')
-        self.processed_dir = osp.join(data_dir, 'processed')
+        self.dataset_name = dataset_name
+        self.partition_kind = partition_kind
+        self.raw_file_name = f'DeepDTA_{dataset_name}.tsv'
+        self.raw_data = pd.read_csv(osp.join(root, 'raw',
+                                    self.raw_file_name), sep='\t')
         self.data_splits = data_splits
+
+        super(HybridDataset, self).__init__(root, None, None)
+
+        # Prepare or load the dictionaries for drugs and proteins
+        # Drug dictionary
+        fname = osp.join(self.raw_dir, f'drug_dict_{self.dataset_name}.json')
+        self.drug_dict = get_dictionary(fname, self.raw_data, 'Drug')
+        self.len_drug_vocab = len(self.drug_dict)
+        # Protein dictionary
+        fname = osp.join(self.raw_dir, f'prot_dict_{self.dataset_name}.json')
+        self.prot_dict = get_dictionary(fname, self.raw_data, 'Protein')
+        self.len_prot_vocab = len(self.prot_dict)
+
+        if self.dataset_name == 'DAVIS':
+            # DAVIS: 0-pad SMILES to 85 and proteins to 1200. Truncate above.
+            self.drug_encoded_len = 85
+            self.prot_encoded_len = 1200
+        elif self.dataset_name == 'KIBA':
+            # KIBA: 0-pad smiles to 100 and proteins to 1000. Truncate above.
+            self.drug_encoded_len = 100
+            self.prot_encoded_len = 1000
+
+        # Encode the SMLILES and protein strings
+        # Drugs/SMILES
+        self.drugs = self.raw_data['Drug'].unique()  # Unique drugs
+        self.raw_data['Drug_enc'] = \
+            [np.zeros(self.drug_encoded_len,
+                      dtype=np.int32)] * self.raw_data.shape[0]
+        for drug in self.drugs:
+            enc = encode_sequence(drug, self.drug_dict, self.drug_encoded_len)
+            self.raw_data['Drug_enc'] = \
+                np.where(self.raw_data['Drug'] == drug,
+                         pd.Series([enc]), self.raw_data['Drug_enc'])
+
+        # Encode the protein strings
+        # Proteins
+        self.prots = self.raw_data['Protein'].unique()  # Unique proteins
+        self.raw_data['Prot_enc'] = [np.zeros(self.prot_encoded_len,
+                                     dtype=np.int32)] * self.raw_data.shape[0]
+        for prot in self.prots:
+            enc = encode_sequence(prot, self.prot_dict, self.prot_encoded_len)
+            self.raw_data['Prot_enc'] = \
+                np.where(self.raw_data['Protein'] == prot, pd.Series([enc]),
+                         self.raw_data['Prot_enc'])
+
         # Split data into train/valid/test sets
         train, valid, test, n_drug = partition_data(self.data_splits,
-                                                    self.data)
+                                                    self.raw_data,
+                                                    kind=self.partition_kind)
         self.n_drug = n_drug
         self.train_ids, self.train_drugs = train['ids'], train['drugs']
         self.valid_ids, self.valid_drugs = valid['ids'], valid['drugs']
         self.test_ids, self.test_drugs = test['ids'], test['drugs']
 
-    def __len__(self):
+    @property
+    def raw_file_names(self):
+        return self.raw_file_name
+
+    @property
+    def processed_file_names(self):
+
+        return self.raw_file_name
+
+    def download(self):
+        pass
+
+    def process(self):
+        pass
+
+    def len(self):
+
         if self.partition == 'train':
-            return len(self.train_ids)
+            n = len(self.train_ids)
         elif self.partition == 'valid':
-            return len(self.valid_ids)
+            n = len(self.valid_ids)
         elif self.partition == 'test':
-            return len(self.test_ids)
-
-    def _build_embed_fname(self, ID):
-        return f'{self.dataset_name}_{ID}_embedded.pt'
-
-    def __getitem__(self, idx):
-
-        if self.partition == 'train':
-            row = self.data.loc[self.train_ids[idx]]
-        elif self.partition == 'valid':
-            row = self.data.loc[self.valid_ids[idx]]
-        elif self.partition == 'test':
-            row = self.data.loc[self.test_ids[idx]]
+            n = len(self.test_ids)
         else:
-            row = self.data.loc[self.raw_data.index[idx]]
+            n = len(self.raw_data.index)
 
-        prot_embed_fname = osp.join(self.processed_dir,
-                                    self._build_embed_fname(row["Prot_ID"]))
-        prot_data = torch.load(prot_embed_fname)
+        return n
 
-        drug_embed_fname = osp.join(self.processed_dir,
-                                    self._build_embed_fname(row["Drug_ID"]))
-        drug_data = torch.load(drug_embed_fname)
+    def get(self, idx):
+
+        if self.partition == 'train':
+            row = self.raw_data.loc[self.train_ids[idx]]
+        elif self.partition == 'valid':
+            row = self.raw_data.loc[self.valid_ids[idx]]
+        elif self.partition == 'test':
+            row = self.raw_data.loc[self.test_ids[idx]]
+        else:
+            row = self.raw_data.loc[self.raw_data.index[idx]]
 
         if self.dataset_name == 'DAVIS':
             # see https://github.com/hkmztrk/DeepDTA/blob/master/data/README.md
-            y = float(- np.log(row['Y'] / 1e9))
+            y = torch.tensor([- np.log(row['Y'] / 1e9)], dtype=torch.float32)
         elif self.dataset_name == 'KIBA':
-            y = row['Y']
+            y = torch.tensor([row['Y']], dtype=torch.float32)
 
-        # meta = {'data_drug_id': str(drug_data['Drug_ID']),
-        #         'data_prot_id': str(prot_data['Prot_ID']),
-        #         'raw_Drug_ID': str(row['Drug_ID']),
-        #         'raw_Drug': row['Drug'],
-        #         'raw_Target_ID': str(row['Prot_ID']),
-        #         'raw_Target': row['Protein'],
-        #         'raw_Y': row['Y']}
-        import ipdb; ipdb.set_trace()
-        return drug_data['embeddings'].x, prot_data['embeddings'].x, y
+        meta = {'Drug_ID': str(row['Drug_ID']),
+                'Drug': row['Drug'],
+                'Prot_ID': str(row['Prot_ID']),
+                'Prot': row['Protein'],
+                'Y': row['Y']}
+
+        drug_data = torch.tensor(row['Drug_enc'])
+        prot_data = torch.tensor(row['Prot_enc'])
+        # drug_data = from_smiles(row['Drug'])
+
+        return drug_data, prot_data, y, meta
 
 
-class BertGraphDataset(GraphDataset):
+class BertDataset(GraphDataset):
 
-    def __init__(self, root,
-                 dataset_name='KIBA',
-                 partition='train',
-                 network_type='gcn',
-                 data_splits=(.8, .2, 0.)):
+    def __init__(self, root, dataset_name='KIBA', partition='train',
+                 network_type='gcn', data_splits=(.8, .2, 0.),
+                 partition_kind='drug'):
         """
+        partition_kind  : "pair" or "drug". How to split the data.
+                          "pair" - splits on drug-protein pairs
+                          "drug" - splits on the unique drugs
         """
         self.partition = partition
+        self.partition_kind = partition_kind
         self.dataset_name = dataset_name
         self.raw_file_name = f'DeepDTA_{dataset_name}.tsv'
         self.network_type = network_type
         self.data_splits = data_splits
 
-        super(BertGraphDataset, self).__init__(root, None, None)
+        super(BertDataset, self).__init__(root, None, None)
 
         # Split data into train/valid/test sets
         train, valid, test, n_drug = partition_data(self.data_splits,
-                                                    self.raw_data)
+                                                    self.raw_data,
+                                                    kind=self.partition_kind)
         self.n_drug = n_drug
         self.train_ids, self.train_drugs = train['ids'], train['drugs']
         self.valid_ids, self.valid_drugs = valid['ids'], valid['drugs']
@@ -407,16 +613,16 @@ class BertGraphDataset(GraphDataset):
 
         if self.dataset_name == 'DAVIS':
             # see https://github.com/hkmztrk/DeepDTA/blob/master/data/README.md
-            y = float(- np.log(row['Y'] / 1e9))
+            y = torch.tensor([- np.log(row['Y'] / 1e9)], dtype=torch.float32)
         elif self.dataset_name == 'KIBA':
-            y = row['Y']
+            y = torch.tensor([row['Y']], dtype=torch.float32)
 
-        meta = {'data_drug_id': str(drug_data['Drug_ID']),
-                'data_prot_id': str(prot_data['Prot_ID']),
+        meta = {'Drug_ID': str(drug_data['Drug_ID']),
+                'Prot_ID': str(prot_data['Prot_ID']),
                 'raw_Drug_ID': str(row['Drug_ID']),
-                'raw_Drug': row['Drug'],
-                'raw_Target_ID': str(row['Prot_ID']),
-                'raw_Target': row['Protein'],
-                'raw_Y': row['Y']}
+                'Drug': row['Drug'],
+                'raw_Prot_ID': str(row['Prot_ID']),
+                'Prot': row['Protein'],
+                'Y': row['Y']}
 
-        return drug_data['embeddings'], prot_data['embeddings'], y
+        return drug_data['embeddings'], prot_data['embeddings'], y, meta

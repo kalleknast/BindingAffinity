@@ -180,7 +180,6 @@ class DeepDTA(torch.nn.Module):
     def forward(self, xd, xp):
 
         # Encode drugs/SMILES
-        import ipdb; ipdb.set_trace()
         xd = self.embedding_d(xd.int()).transpose(1, 2)
         xd = self.conv1d_d1(xd).relu()
         xd = self.conv1d_d2(xd).relu()
@@ -195,6 +194,63 @@ class DeepDTA(torch.nn.Module):
         xp = self.global_max_pool_p(xp).squeeze()
 
         # Common regression head
+        x = torch.cat([xd, xp], dim=1)
+        x = self.dense_1(x).relu()
+        x = self.dropout_1(x).relu()
+        x = self.dense_2(x).relu()
+        x = self.dropout_2(x).relu()
+        x = self.dense_3(x).relu()
+        pred = self.dense_4(x)
+
+        return pred
+
+
+class Hybrid(torch.nn.Module):
+    def __init__(self, dataset, hidden_channels):
+        super(Hybrid, self).__init__()
+
+        # GCN for drug encoding
+        self.gconv_d1 = GCNConv(dataset.num_node_features, hidden_channels)
+        self.gconv_d2 = GCNConv(hidden_channels, hidden_channels)
+        self.gconv_d3 = GCNConv(hidden_channels, 96)
+
+        # Conv1D for protein encoding
+        self.embedding_p = Embedding(num_embeddings=dataset.len_prot_vocab + 1,
+                                     embedding_dim=128)
+        self.conv1d_p1 = Conv1d(128, out_channels=32,
+                                kernel_size=8, padding='valid')
+        self.conv1d_p2 = Conv1d(32, out_channels=64,
+                                kernel_size=8, padding='valid')
+        self.conv1d_p3 = Conv1d(64, out_channels=96,
+                                kernel_size=8, padding='valid')
+        self.global_max_pool_p = AdaptiveMaxPool1d(1)
+
+        # Common regression head
+        self.dense_1 = Linear(96*2, 1024)
+        self.dropout_1 = Dropout(p=0.1)
+        self.dense_2 = Linear(1024, 1024)
+        self.dropout_2 = Dropout(p=0.1)
+        self.dense_3 = Linear(1024, 512)
+        self.dense_4 = Linear(512, 1)
+        torch.nn.init.normal_(self.dense_4.weight)
+
+    def forward(self, xd, xp):
+
+        # GCN for drug encoding
+        xd, edge_index, batch = xd.x.to(torch.float32), xd.edge_index, xd.batch
+        xd = self.gconv_d1(xd, edge_index).relu()
+        xd = self.gconv_d2(xd, edge_index).relu()
+        xd = self.gconv_d3(xd, edge_index).relu()
+        xd = global_mean_pool(xd, batch)  # [batch_size, hidden_channels]
+
+        # Conv1D for protein encoding - from DeepDTA
+        xp = self.embedding_p(xp.int()).transpose(1, 2)
+        xp = self.conv1d_p1(xp).relu()
+        xp = self.conv1d_p2(xp).relu()
+        xp = self.conv1d_p3(xp).relu()
+        xp = self.global_max_pool_p(xp).squeeze()
+
+        # Common regression head - from DeepDTA
         x = torch.cat([xd, xp], dim=1)
         x = self.dense_1(x).relu()
         x = self.dropout_1(x).relu()
