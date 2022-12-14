@@ -389,26 +389,11 @@ class HybridDataset(GraphDataset):
 
         # Encode the SMLILES and protein strings
         # Drugs/SMILES
-        self.drugs = self.raw_data['Drug'].unique()  # Unique drugs
-        self.raw_data['Drug_enc'] = \
-            [np.zeros(self.drug_encoded_len,
-                      dtype=np.int32)] * self.raw_data.shape[0]
-        for drug in self.drugs:
-            enc = encode_sequence(drug, self.drug_dict, self.drug_encoded_len)
-            self.raw_data['Drug_enc'] = \
-                np.where(self.raw_data['Drug'] == drug,
-                         pd.Series([enc]), self.raw_data['Drug_enc'])
-
-        # Encode the protein strings
+        add_encoded_column(self.raw_data, 'Drug',
+                           self.drug_dict, self.drug_encoded_len)
         # Proteins
-        self.prots = self.raw_data['Protein'].unique()  # Unique proteins
-        self.raw_data['Prot_enc'] = [np.zeros(self.prot_encoded_len,
-                                     dtype=np.int32)] * self.raw_data.shape[0]
-        for prot in self.prots:
-            enc = encode_sequence(prot, self.prot_dict, self.prot_encoded_len)
-            self.raw_data['Prot_enc'] = \
-                np.where(self.raw_data['Protein'] == prot, pd.Series([enc]),
-                         self.raw_data['Prot_enc'])
+        add_encoded_column(self.raw_data, 'Protein',
+                           self.prot_dict, self.prot_encoded_len)
 
         # Split data into train/valid/test sets
         train, valid, test, n_drug = partition_data(self.data_splits,
@@ -470,9 +455,9 @@ class HybridDataset(GraphDataset):
                 'Prot': row['Protein'],
                 'Y': row['Y']}
 
-        drug_data = torch.tensor(row['Drug_enc'])
+        # drug_data = torch.tensor(row['Drug_enc'])
         prot_data = torch.tensor(row['Prot_enc'])
-        # drug_data = from_smiles(row['Drug'])
+        drug_data = from_smiles(row['Drug'])
 
         return drug_data, prot_data, y, meta
 
