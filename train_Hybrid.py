@@ -1,19 +1,15 @@
 import torch
-from torch.utils.data import DataLoader
-from torch_geometric.loader import DataLoader as GraphDataLoader
-from data import EmbeddingDataset, DeepDTADataset, HybridDataset
+from torch_geometric.loader import DataLoader
+from data import HybridDataset
 from utils import train, evaluate
 from plot import plot_predictions, plot_losses
-from models import DeepDTA
+from models import Hybrid
 import json
 
-
-model_name = 'DeepDTA-DS'
-# model_name = 'DeepDTA-ED'
-dataset_name = 'KIBA'  # 'DAVIS'
+model_name = 'Hybrid'
+dataset_name = 'KIBA'
 root = 'data'
 partition_kind = 'drug'
-# partition_kind = 'pair'
 epochs = 20
 batch_size = 256
 
@@ -21,21 +17,15 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # device = 'cpu'
 print(f"Using {device} device")
 
-dataset = EmbeddingDataset(root, dataset_name, partition_kind=partition_kind)
-# dataset = DeepDTADataset(fold=1)
-# dataset = HybridDataset(root,
-#                         dataset_name=dataset_name,
-#                         partition_kind=partition_kind)
-# data_loader = GraphDataLoader(dataset,
-#                               batch_size=batch_size,
-#                               shuffle=True,
-#                               num_workers=12)
+dataset = HybridDataset(root,
+                        dataset_name=dataset_name,
+                        partition_kind=partition_kind)
 data_loader = DataLoader(dataset,
                          batch_size=batch_size,
                          shuffle=True,
                          num_workers=12)
 
-model = DeepDTA(dataset).to(device)
+model = Hybrid(dataset, 96).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 loss_fn = torch.nn.MSELoss()
 
