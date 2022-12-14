@@ -18,15 +18,18 @@ The performance depends strongly on the chosen method. See, for example, the dif
 
 ![Evaluation comparison](fig/history_comparision_DeepDTA.png)
 
+### Models
 
-### DeepDTA
+#### DeepDTA
 The DeepDTA model is presented in [DeepDTA: Deep Drug-Target Binding Affinity Prediction](https://arxiv.org/abs/1801.10193). The original code is available [here](https://github.com/hkmztrk/DeepDTA).
 
+#### Hybrid model
+The Hybrid model combines a GCN-branch for drug encoding and an embedding (DeepDTA-style) branch for protein encoding. In the drug branch, the drugs [SMILES](https://en.wikipedia.org/wiki/Simplified_molecular-input_line-entry_system) are first represented as graphs (nodes and edges) followed by three layers of graph convolutions. These are combined with protein encodings in a common regression head.
 
-### MT-DTI
+#### MT-DTI
 The code is available [here](https://github.com/deargen/mt-dti).
 
-### BERT-GCN
+#### BERT-GCN
 The paper [Modelling Drug-Target Binding Affinity using a BERT based Graph Neural network](https://openreview.net/pdf?id=Zqf6RGp5lqf) by Lennox, Robertson and Devereux presents a graph convolutional neural network (GCN) trained to predict the binding affinity of drugs to proteins. Their model takes as input BERT-embedded protein sequences and drug molecules. This combination of BERT embeddings and a graph network is relatively novel, and the model achieves (at publication) state-of-the-art results. However, the paper leaves many technical details unspecified, and no code is provided. Thus, the goal is the implement the GCN and replicate the results from the paper.
 
 ## Install
