@@ -588,13 +588,11 @@ class BertDataset(GraphDataset):
                                     self._build_embed_fname(row["Drug_ID"]))
         drug_data = torch.load(drug_embed_fname)
 
-        if self.network_type == 'gcn':  # remove non-node embeddings
+        if self.network_type == 'graph':  # remove non-node embeddings
             node_ids = drug_data['node_ids']
             drug_data['embeddings'].x = drug_data['embeddings'].x[node_ids]
-        elif self.network_type == 'mlp':  # keep both bond/edge and node embeds
+        else:  # keep both bond/edge and node embeds
             pass
-        else:
-            raise ValueError('Unknown network type')
 
         if self.dataset_name == 'DAVIS':
             # see https://github.com/hkmztrk/DeepDTA/blob/master/data/README.md
@@ -609,5 +607,8 @@ class BertDataset(GraphDataset):
                 'raw_Prot_ID': str(row['Prot_ID']),
                 'Prot': row['Protein'],
                 'Y': row['Y']}
+
+        # drug_data['embeddings'].x.requires_grad = False
+        # prot_data['embeddings'].x.requires_grad = False
 
         return drug_data['embeddings'], prot_data['embeddings'], y, meta

@@ -206,13 +206,13 @@ class DeepDTA(torch.nn.Module):
 
 
 class Hybrid(torch.nn.Module):
-    def __init__(self, dataset, hidden_channels):
+    def __init__(self, dataset):
         super(Hybrid, self).__init__()
 
         # GCN for drug encoding
-        self.gconv_d1 = GCNConv(dataset.num_node_features, hidden_channels)
-        self.gconv_d2 = GCNConv(hidden_channels, hidden_channels)
-        self.gconv_d3 = GCNConv(hidden_channels, 96)
+        self.gconv_d1 = GCNConv(dataset.num_node_features, 32)
+        self.gconv_d2 = GCNConv(32, 64)
+        self.gconv_d3 = GCNConv(64, 96)
 
         # Conv1D for protein encoding
         self.embedding_p = Embedding(num_embeddings=dataset.len_prot_vocab + 1,

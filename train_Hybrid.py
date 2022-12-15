@@ -6,13 +6,14 @@ from plot import plot_predictions, plot_losses
 from models import Hybrid
 import json
 
-model_name = 'Hybrid'
+model_name = 'Hybrid32'
 dataset_name = 'KIBA'
 root = 'data'
-partition_kind = 'drug'
-epochs = 20
+partition_kind = 'pair'
+epochs = 100
 batch_size = 256
 
+model_name = f'{model_name}_{partition_kind}split'
 device = "cuda" if torch.cuda.is_available() else "cpu"
 # device = 'cpu'
 print(f"Using {device} device")
@@ -25,7 +26,7 @@ data_loader = DataLoader(dataset,
                          shuffle=True,
                          num_workers=12)
 
-model = Hybrid(dataset, 96).to(device)
+model = Hybrid(dataset).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 loss_fn = torch.nn.MSELoss()
 
