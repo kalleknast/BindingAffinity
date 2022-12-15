@@ -23,8 +23,11 @@ The performance depends strongly on the chosen method. See, for example, the dif
 #### DeepDTA
 The DeepDTA model is presented in [DeepDTA: Deep Drug-Target Binding Affinity Prediction](https://arxiv.org/abs/1801.10193). The original code is available [here](https://github.com/hkmztrk/DeepDTA).
 
-#### Hybrid model
-The Hybrid model combines a GCN-branch for drug encoding and an embedding (DeepDTA-style) branch for protein encoding. In the drug branch, the drugs [SMILES](https://en.wikipedia.org/wiki/Simplified_molecular-input_line-entry_system) are first represented as graphs (nodes and edges) followed by three layers of graph convolutions. These are combined with protein encodings in a common regression head.
+#### Hybrid -- Graph-Embeddings
+The Hybrid model combines a GCN-branch for drug encoding and an embedding (DeepDTA-style) branch for protein encoding. In the drug branch, the drugs [SMILES](https://en.wikipedia.org/wiki/Simplified_molecular-input_line-entry_system) are first represented as graphs (nodes and edges) followed by three layers of graph convolutions. These are combined with protein encodings in a common regression head. Original code [here](https://github.com/kalleknast/BindingAffinity).
+
+#### BERT-CNN
+BERT embeddings and 1D convolutional branches as in DeepDTA. Original code [here](https://github.com/kalleknast/BindingAffinity).
 
 #### MT-DTI
 The code is available [here](https://github.com/deargen/mt-dti).
