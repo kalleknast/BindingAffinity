@@ -18,6 +18,18 @@ The performance depends strongly on the chosen method. See, for example, the dif
 
 ![Evaluation comparison](fig/history_comparision_DeepDTA.png)
 
+## Install
+```termial
+pip install -r requirements.txt
+```
+
+## Data
+In the working directory, make the directory `data,` and then the subdirectories `raw` and `processed` in `data`.
+```terminal
+mkdir -p data/raw
+mkdir -p data/processed
+```
+
 ### Models
 
 #### DeepDTA
@@ -49,36 +61,24 @@ The code is available [here](https://github.com/deargen/mt-dti).
 #### BERT-GCN
 The paper [Modelling Drug-Target Binding Affinity using a BERT based Graph Neural network](https://openreview.net/pdf?id=Zqf6RGp5lqf) by Lennox, Robertson and Devereux presents a graph convolutional neural network (GCN) trained to predict the binding affinity of drugs to proteins. Their model takes as input BERT-embedded protein sequences and drug molecules. This combination of BERT embeddings and a graph network is relatively novel, and the model achieves (at publication) state-of-the-art results. However, the paper leaves many technical details unspecified, and no code is provided. Thus, the goal is the implement the GCN and replicate the results from the paper.
 
-## Install
-```termial
-pip install -r requirements.txt
-```
+##### Issues and solutions
 
-## Issues and solutions
-
-### Data
+###### Data
 A GCN takes nodes and edges as inputs. The paper describes embedding both proteins and drugs using pre-trained BERT models where each token is embedded as a 768-long vector. This results in two issues that are not mentioned in the paper.
-### Proteins
+####### Proteins
 The primary protein sequence is tokenized into amino acids and there are trivial edges between neighbouring tokens. However, a protein's 3D structure puts some amino acids very close to each other and edges between those should also be included. The authors do not mention anything about this. Here, only edges to neighbours in the primary sequence are included.
-### Drugs
+####### Drugs
 The drugs are tokenized with a Byte-Pair Encoder (BPE) from Simplified molecular-input line-entry system [SMILES](https://en.wikipedia.org/wiki/Simplified_molecular-input_line-entry_system). A BPE combines characters to produce a fixed-size vocabulary where frequently occurring subsequences of characters are combined into tokens. The particular BPE (probably) used in the paper separates bond tokens and atom tokens so that multi-character tokens are made of either only atoms (nodes) or only bonds. An embedded SMILES will be made up of both node (atoms) and bond vectors. Since the bonds often correspond to small groups of atoms, the edges computed directly from a SMILES string do not match (the latter edges are between atoms). The paper does not specify how this was resolved. Here, only edges between nodes were included, and embedding vectors corresponding to bonds were removed (i.e. only node vectors were included as inputs to the GCN).
 
-### Network architecture
+####### Network architecture
 The network architecture is described in Fig. 1 of the paper.
  1. **Issue**: In step 1, there is an average pooling layer after embedding (both protein and drug). This layer collapses the tensors over the nodes and is generally used as a readout layer right before the classification/regression head. The purpose of the average pooling layer before the GCN layers is unclear. **Solution**: This average pooling layer was omitted.
  2. **Issue**:In step 4, there is a concatenation layer directly after the GCN layers. What is being concatenated is unclear. **Solution**: This concatenation layer was omitted.
  3. **Issue**: In step 3, there is no readout layer that collapses over nodes. Thus, the input to the final dense layers will have a variable number of nodes. This does not work. **Solution**: After the GCN layers, an average pooling layer was added.
  
-## Use
-In the working directory, make the directory `data,` and then the subdirectories `raw` and `processed` in `data`.
-```terminal
-mkdir -p data/raw
-mkdir -p data/processed
-```
-
 Train and evaluate the GCN model (this will download and process the data the first time it runs):
 ```terminal
-python gcn_model.py
+python train_BertGCN.py
 ```
 
 Train and evaluate the MLP model:
