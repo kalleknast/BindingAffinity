@@ -548,8 +548,9 @@ class BertDataset(GraphDataset):
                 edges, index_map = smiles_edges_to_token_edges(row['Drug'],
                                                                drug_tokenizer,
                                                                reverse_vocab)
-                data = {'embeddings': Data(x=embed,
-                                           edge_index=torch.tensor(edges)),
+                data = {'embeddings':
+                        Data(x=embed,
+                             edge_index=torch.tensor(edges, dtype=torch.long)),
                         'Drug_ID': row['Drug_ID'],
                         'node_ids': index_map['keep'].values.astype('bool')}
                 fname = self._build_embed_fname(row["Drug_ID"])

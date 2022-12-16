@@ -433,52 +433,65 @@ class BertCNN(torch.nn.Module):
         return pred
 
 
-class GCN(torch.nn.Module):
+class BertGCN(torch.nn.Module):
 
     def __init__(self, dataset, n_hidden=128):
-        super(GCN, self).__init__()
+        super(BertGCN, self).__init__()
 
         self.batchnorm = BatchNorm(dataset.num_node_features)
-        # NOTE: ADD TWO INDEPENDENT BRANCHES - NO WEIGHT SHARING
-        # NOTE: ADD 1-D CONV ALONG BERT EMBEDDING DIM (768)
-        self.dense1 = GraphLinear(dataset.num_node_features, 2*n_hidden)
-        self.dense2 = GraphLinear(2*n_hidden, n_hidden)
-        self.conv1 = GCNConv(n_hidden, n_hidden)
-        # self.conv1 = GCN2Conv(n_hidden, n_hidden)
-        self.conv2 = GCNConv(n_hidden, n_hidden)
-        self.conv3 = GCNConv(n_hidden, n_hidden)
-        self.dense3 = GraphLinear(2*n_hidden, 256)
-        self.dense4 = GraphLinear(256, 128)
-        self.dense5 = Linear(128, 1)
 
-    def forward(self, data):
-        # Drug
+        # Drug branch
+        self.dense_d1 = GraphLinear(dataset.num_node_features, 2*n_hidden)
+        self.dense_d2 = GraphLinear(2*n_hidden, n_hidden)
+        self.conv_d1 = GCNConv(n_hidden, n_hidden)
+        self.conv_d2 = GCNConv(n_hidden, n_hidden)
+        self.conv_d3 = GCNConv(n_hidden, n_hidden)
+
+        # NOTE: ADD 1-D CONV ALONG BERT EMBEDDING DIM (768)
+
+        # Protein branch
+        self.dense_p1 = GraphLinear(dataset.num_node_features, 2*n_hidden)
+        self.dense_p2 = GraphLinear(2*n_hidden, n_hidden)
+        self.conv_p1 = GCNConv(n_hidden, n_hidden)
+        self.conv_p2 = GCNConv(n_hidden, n_hidden)
+        self.conv_p3 = GCNConv(n_hidden, n_hidden)
+
+        # Common regressor
+        self.dense_1 = GraphLinear(2*n_hidden, 256)
+        self.dense_2 = GraphLinear(256, 128)
+        self.dense_3 = Linear(128, 1)
+
+    def forward(self, xd, xp):
+
+        # Encode drugs/SMILES
         # average pooling
-        x0, edge_index = data[0].x, data[0].edge_index
-        x0 = self.batchnorm(x0)
-        x0 = self.dense1(x0).relu()
-        x0 = self.dense2(x0).relu()
-        x0 = self.conv1(x0, edge_index).relu()
-        x0 = self.conv2(x0, edge_index).relu()
-        x0 = self.conv3(x0, edge_index).relu()
-        x0 = global_mean_pool(x0, data[0].batch)
+        # x0, edge_index = xd.x, xp.edge_index
+        xd.x = self.batchnorm(xd.x)
+        xd.x = self.dense_d1(xd.x).relu()
+        xd.x = self.dense_d2(xd.x).relu()
+
+        xd.x = self.conv_d1(xd.x, xd.edge_index).relu()
+        xd.x = self.conv_d2(xd.x, xd.edge_index).relu()
+        xd.x = self.conv_d3(xd.x, xd.edge_index).relu()
+        xd.x = global_mean_pool(xd.x, xd.batch)
         # x0 = torch.cat(x0, dim=0)
 
-        # Protein
+        # Encode proteins
         # average pooling
-        x1, edge_index = data[1].x, data[1].edge_index
-        x1 = self.batchnorm(x1)
-        x1 = self.dense1(x1).relu()
-        x1 = self.dense2(x1).relu()
-        x1 = self.conv1(x1, edge_index).relu()
-        x1 = self.conv2(x1, edge_index).relu()
-        x1 = self.conv3(x1, edge_index).relu()
-        x1 = global_mean_pool(x1, data[1].batch)
+        # xp, edge_index = data[1].x, data[1].edge_index
+        xp.x = self.batchnorm(xp.x)
+        xp.x = self.dense_p1(xp.x).relu()
+        xp.x = self.dense_p2(xp.x).relu()
+        xp.x = self.conv_p1(xp.x, xp.edge_index).relu()
+        xp.x = self.conv_p2(xp.x, xp.edge_index).relu()
+        xp.x = self.conv_p3(xp.x, xp.edge_index).relu()
+        xp.x = global_mean_pool(xp.x, xp.batch)
         # x1 = torch.cat(x1, dim=0)
 
-        x = torch.cat([x0, x1], dim=1)
-        x = self.dense3(x).relu()
-        x = self.dense4(x).relu()
-        pred = self.dense5(x)
+        # Common regression head
+        x = torch.cat([xd.x, xp.x], dim=1)
+        x = self.dense_1(x).relu()
+        x = self.dense_2(x).relu()
+        pred = self.dense_3(x)
 
         return pred

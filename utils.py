@@ -149,7 +149,7 @@ def get_node_edges(smiles_edges, index_map):
         elif id_0.sum() > 1 or id_1.sum() > 1:
             raise ValueError('The edge seems to connect to multiple nodes!')
 
-    return np.array(node_edges)
+    return np.array(node_edges, dtype=int)
 
 
 def smiles_edges_to_token_edges(smiles, tokenizer, reverse_vocab):
