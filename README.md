@@ -12,7 +12,7 @@ The [Kiba dataset](https://pubs.acs.org/doi/10.1021/ci400709d) is made up of dru
  2) Split on drugs, where the data is split on the unique drugs so that only proteins occur in both partitions, not drugs. 
  3) Split on proteins, where the data is split on the unique proteins so that only drugs occur in both partitions, not drugs. Splitting on unique drugs and proteins is not feasible since it requires excluding all pairs made up of a drug from one partition and a protein from the other (thus losing a lot of data).
 
-What strategy to use depends on how the model is intended to be used. When using strategy 1) the performance is only relevant to drugs and proteins already present in the training set. This seems unrealistic for practical applications. With strategy 2) (or 3)), the performance is relevant to situations where the drug (or protein) was not present in the training set, but the protein (or drug) was. This seems more realistic.
+What strategy to use depends on how the model is intended to be used. When using strategy 1) the performance is only relevant to drugs and proteins already present in the training set. This seems unrealistic for practical applications. For example, when predicting the binding affinity of a NEW drug. With strategy 2) (or 3)), the performance is relevant to situations where the drug (or protein) was not present in the training set, but the protein (or drug) was. This seems more realistic.
 
 The performance depends strongly on the chosen method. See, for example, the difference between [DeepDTA models](https://arxiv.org/abs/1801.10193) fitted and evaluated on data split by strategies 1) and 2).
 
@@ -68,7 +68,7 @@ python train_MTDTI.py
 ```
 
 #### TODO
-[ ] Try BERT pre-trained on the 10M PubChem dataset ("seyonec/PubChem10M_SMILES_*" at https://huggingface.co/seyonec).
+- [ ] Try BERT pre-trained on the 10M PubChem dataset ("seyonec/PubChem10M_SMILES_*" at https://huggingface.co/seyonec).
 
 #### BERT-GCN
 The paper [Modelling Drug-Target Binding Affinity using a BERT based Graph Neural network](https://openreview.net/pdf?id=Zqf6RGp5lqf) by Lennox, Robertson and Devereux presents a graph convolutional neural network (GCN) trained to predict the binding affinity of drugs to proteins. Their model takes as input BERT-embedded protein sequences and drug molecules. This combination of BERT embeddings and a graph network is relatively novel, and the model achieves (at publication) state-of-the-art results. However, the paper leaves many technical details unspecified, and no code is provided. Thus, the goal is the implement the GCN and replicate the results from the paper.
