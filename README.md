@@ -56,7 +56,19 @@ python train_BertDTA.py
 ```
 
 #### MT-DTI
-The code is available [here](https://github.com/deargen/mt-dti).
+The model has roughly the same archtecture as [DeepDTA](https://github.com/hkmztrk/DeepDTA) but differs in that the drug SMILES are encoded by a pre-traied BERT encoder.
+
+The original TenforFlow implementation is available [here](https://github.com/deargen/mt-dti). This implementation differs in that it relies on a pre-trained drug encoder from [chemBERTa](https://github.com/seyonechithrananda/bert-loves-chemistry) (ChemBERTa_zinc250k_v2_40k). The chemBERTa model is pre-trained on a smaller dataset (ZINC 250k) and not all the 97,092,853 SMILES form PubChem used in the original [MT-DTI model](https://github.com/deargen/mt-dti).
+
+Model training takes verly long time on a GPU due to the BERT drug encoder.
+
+#### Train and evaluate
+```terminal
+python train_MTDTI.py
+```
+
+#### TODO
+[] Try BERT pre-trained on the 10M PubChem dataset ("seyonec/PubChem10M_SMILES_*" at https://huggingface.co/seyonec).
 
 #### BERT-GCN
 The paper [Modelling Drug-Target Binding Affinity using a BERT based Graph Neural network](https://openreview.net/pdf?id=Zqf6RGp5lqf) by Lennox, Robertson and Devereux presents a graph convolutional neural network (GCN) trained to predict the binding affinity of drugs to proteins. Their model takes as input BERT-embedded protein sequences and drug molecules. This combination of BERT embeddings and a graph network is relatively novel, and the model achieves (at publication) state-of-the-art results. However, the paper leaves many technical details unspecified, and no code is provided. Thus, the goal is the implement the GCN and replicate the results from the paper.
