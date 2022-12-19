@@ -32,6 +32,9 @@ DTA_PROT_DICT = {"A": 1, "C": 2, "B": 3, "E": 4, "D": 5, "G": 6,
                  "O": 13, "N": 14, "Q": 15, "P": 16, "S": 17, "R": 18,
                  "U": 19, "T": 20, "W": 21, "V": 22, "Y": 23, "X": 24, "Z": 25}
 
+drug_tokenizer = AutoTokenizer.from_pretrained(
+    "seyonec/ChemBERTa_zinc250k_v2_40k")
+
 
 def get_dictionary(fname, raw_data, kind):
     """
@@ -49,7 +52,7 @@ def get_dictionary(fname, raw_data, kind):
     return dictionary
 
 
-def add_encoded_column(data, kind, mol_dict, encoded_len):
+def add_encoded_column(data, kind, mol_dict, encoder, encoded_len):
     """
     In-place
     """
@@ -58,7 +61,13 @@ def add_encoded_column(data, kind, mol_dict, encoded_len):
     data[enc_col] = [np.zeros(encoded_len,
                               dtype=np.int32)] * data.shape[0]
     for mol in mols:
-        enc = encode_sequence(mol, mol_dict, encoded_len)
+        if encoder == 'DeepDTA':
+            enc = encode_sequence(mol, mol_dict, encoded_len)
+        elif encoder == 'Bert-drug':
+            enc = drug_tokenizer.encode(mol,
+                                        padding="max_length",
+                                        max_length=512)
+
         data[enc_col] = np.where(data[kind] == mol,
                                  pd.Series([enc]), data[enc_col])
 
@@ -186,7 +195,8 @@ class DeepDTADataset(Dataset):
 
 class EmbeddingDataset(Dataset):
     def __init__(self, root, dataset_name='KIBA', partition='train',
-                 data_splits=(.8, .2, 0.), partition_kind='drug'):
+                 data_splits=(.8, .2, 0.), partition_kind='drug',
+                 drug_encoder='DeepDTA', prot_encoder='DeepDTA'):
         """
         The dataset is from https://github.com/hkmztrk/DeepDTA
 
@@ -200,6 +210,8 @@ class EmbeddingDataset(Dataset):
         partition_kind  : "pair" or "drug". How to split the data.
                           "pair" - splits on drug-protein pairs
                           "drug" - splits on the unique drugs
+        drug_encoder    : "DeepDTA" or "Bert-drug"
+        prot_encoder    : "DeepDTA" or "Bert-prot"
         """
 
         self.partition = partition
@@ -207,6 +219,8 @@ class EmbeddingDataset(Dataset):
         self.dataset_name = dataset_name
         self.data_splits = data_splits
         self.partition_kind = partition_kind
+        self.drug_encoder = drug_encoder
+        self.prot_encoder = prot_encoder
         self.raw_data = pd.read_csv(osp.join(self.raw_dir,
                                     f'DeepDTA_{dataset_name}.tsv'), sep='\t')
 
@@ -233,11 +247,11 @@ class EmbeddingDataset(Dataset):
 
         # Encode the SMLILES and protein strings
         # Drugs/SMILES
-        add_encoded_column(self.raw_data, 'Drug',
-                           self.drug_dict, self.drug_encoded_len)
+        add_encoded_column(self.raw_data, 'Drug', self.drug_dict,
+                           self.drug_encoder, self.drug_encoded_len)
         # Proteins
-        add_encoded_column(self.raw_data, 'Protein',
-                           self.prot_dict, self.prot_encoded_len)
+        add_encoded_column(self.raw_data, 'Protein', self.prot_dict,
+                           self.prot_encoder, self.prot_encoded_len)
 
         # Data split
         # train, valid, test, n_drug = partition_data_DTA(self.raw_data)
@@ -460,6 +474,127 @@ class HybridDataset(GraphDataset):
         drug_data = from_smiles(row['Drug'])
 
         return drug_data, prot_data, y, meta
+
+
+# class MTDTIDataset(GraphDataset):
+#
+#     def __init__(self, root, dataset_name='KIBA', partition='train',
+#                  data_splits=(.8, .2, 0.), partition_kind='drug'):
+#         """
+#         partition_kind  : "pair" or "drug". How to split the data.
+#                           "pair" - splits on drug-protein pairs
+#                           "drug" - splits on the unique drugs
+#         """
+#         self.partition = partition
+#         self.dataset_name = dataset_name
+#         self.partition_kind = partition_kind
+#         self.raw_file_name = f'DeepDTA_{dataset_name}.tsv'
+#         self.raw_data = pd.read_csv(osp.join(root, 'raw',
+#                                     self.raw_file_name), sep='\t')
+#         self.data_splits = data_splits
+#         self.drug_tokenizer = AutoTokenizer.from_pretrained(
+#             "seyonec/ChemBERTa_zinc250k_v2_40k")
+#
+#         super(MTDTIDataset, self).__init__(root, None, None)
+#
+#         # Prepare or load the dictionaries for drugs and proteins
+#         # Drug dictionary
+#         # fname = osp.join(self.raw_dir, f'drug_dict_{self.dataset_name}.json')
+#         # self.drug_dict = get_dictionary(fname, self.raw_data, 'Drug')
+#         # self.len_drug_vocab = len(self.drug_dict)
+#         # Protein dictionary
+#         fname = osp.join(self.raw_dir, f'prot_dict_{self.dataset_name}.json')
+#         self.prot_dict = get_dictionary(fname, self.raw_data, 'Protein')
+#         self.len_prot_vocab = len(self.prot_dict)
+#
+#         if self.dataset_name == 'DAVIS':
+#             # DAVIS: 0-pad SMILES to 85 and proteins to 1200. Truncate above.
+#             # self.drug_encoded_len = 85
+#             self.prot_encoded_len = 1200
+#         elif self.dataset_name == 'KIBA':
+#             # KIBA: 0-pad smiles to 100 and proteins to 1000. Truncate above.
+#             # self.drug_encoded_len = 100
+#             self.prot_encoded_len = 1000
+#
+#         # Encode the SMLILES and protein strings
+#         # Drugs/SMILES
+#         # add_encoded_column(self.raw_data, 'Drug',
+#         #                    self.drug_dict, self.drug_encoded_len)
+#         # Proteins
+#         add_encoded_column(self.raw_data, 'Protein',
+#                            self.prot_dict, self.prot_encoded_len)
+#
+#         # Split data into train/valid/test sets
+#         train, valid, test, n_drug = partition_data(self.data_splits,
+#                                                     self.raw_data,
+#                                                     kind=self.partition_kind)
+#         self.n_drug = n_drug
+#         self.train_ids, self.train_drugs = train['ids'], train['drugs']
+#         self.valid_ids, self.valid_drugs = valid['ids'], valid['drugs']
+#         self.test_ids, self.test_drugs = test['ids'], test['drugs']
+#
+#     @property
+#     def raw_file_names(self):
+#         return self.raw_file_name
+#
+#     @property
+#     def processed_file_names(self):
+#
+#         return self.raw_file_name
+#
+#     def download(self):
+#         pass
+#
+#     def process(self):
+#         pass
+#
+#     def len(self):
+#
+#         if self.partition == 'train':
+#             n = len(self.train_ids)
+#         elif self.partition == 'valid':
+#             n = len(self.valid_ids)
+#         elif self.partition == 'test':
+#             n = len(self.test_ids)
+#         else:
+#             n = len(self.raw_data.index)
+#
+#         return n
+#
+#     def get(self, idx):
+#
+#         if self.partition == 'train':
+#             row = self.raw_data.loc[self.train_ids[idx]]
+#         elif self.partition == 'valid':
+#             row = self.raw_data.loc[self.valid_ids[idx]]
+#         elif self.partition == 'test':
+#             row = self.raw_data.loc[self.test_ids[idx]]
+#         else:
+#             row = self.raw_data.loc[self.raw_data.index[idx]]
+#
+#         if self.dataset_name == 'DAVIS':
+#             # see https://github.com/hkmztrk/DeepDTA/blob/master/data/README.md
+#             y = torch.tensor([- np.log(row['Y'] / 1e9)], dtype=torch.float32)
+#         elif self.dataset_name == 'KIBA':
+#             y = torch.tensor([row['Y']], dtype=torch.float32)
+#
+#         meta = {'Drug_ID': str(row['Drug_ID']),
+#                 'Drug': row['Drug'],
+#                 'Prot_ID': str(row['Prot_ID']),
+#                 'Prot': row['Protein'],
+#                 'Y': row['Y']}
+#
+#         # Max input size to the BERT drug encoder seems to be 514
+#         # See: drug_encoder.config["max_position_embeddings"]: 514
+#         # But I'm not 100%
+#         # The longest SMILES in Kiba is 502 tokens
+#         drug_data = torch.tensor(self.drug_tokenizer.encode(row['Drug'],
+#                                  padding="max_length", max_length=512),
+#                                  dtype=torch.int32)
+#
+#         prot_data = torch.tensor(row['Prot_enc'])
+#
+#         return drug_data, prot_data, y, meta
 
 
 class BertDataset(GraphDataset):

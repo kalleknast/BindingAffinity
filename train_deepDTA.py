@@ -22,7 +22,8 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # device = 'cpu'
 print(f"Using {device} device")
 
-dataset = EmbeddingDataset(root, dataset_name, partition_kind=partition_kind)
+dataset = EmbeddingDataset(root, dataset_name, partition_kind=partition_kind,
+                           drug_encoder='DeepDTA', prot_encoder='DeepDTA')
 # dataset = DeepDTADataset(fold=1)
 # dataset = HybridDataset(root,
 #                         dataset_name=dataset_name,
