@@ -3,6 +3,7 @@ from torch_geometric.nn import Linear as GraphLinear
 from torch_geometric.nn import global_mean_pool, BatchNorm, GCNConv
 from torch.nn import Embedding, Conv1d, Conv2d, Linear, Dropout
 from torch.nn import AdaptiveMaxPool1d, AdaptiveMaxPool2d
+from transformers import AutoModel
 
 
 class CNN2D1x1(torch.nn.Module):
@@ -251,6 +252,66 @@ class Hybrid(torch.nn.Module):
         xp = self.global_max_pool_p(xp).squeeze()
 
         # Common regression head - from DeepDTA
+        x = torch.cat([xd, xp], dim=1)
+        x = self.dense_1(x).relu()
+        x = self.dropout_1(x).relu()
+        x = self.dense_2(x).relu()
+        x = self.dropout_2(x).relu()
+        x = self.dense_3(x).relu()
+        pred = self.dense_4(x)
+
+        return pred
+
+
+class MTDTI(torch.nn.Module):
+
+    def __init__(self, dataset):
+        super(MTDTI, self).__init__()
+        """
+        From https://github.com/deargen/mt-dti
+        https://github.com/deargen/mt-dti/blob/master/src/finetune/dti_model.py
+        line 659:
+            model_fn_v11(self, features, labels, mode, params)
+        """
+
+        # Encode SMILES
+        # BERT
+        self.drug_encoder = AutoModel.from_pretrained(
+            "seyonec/ChemBERTa_zinc250k_v2_40k")
+
+        # Encode protein (DeepDTA-style)
+        self.embedding_p = Embedding(num_embeddings=dataset.len_prot_vocab + 1,
+                                     embedding_dim=128)
+        self.conv1d_p1 = Conv1d(128, out_channels=32,
+                                kernel_size=12, padding='valid')
+        self.conv1d_p2 = Conv1d(32, out_channels=64,
+                                kernel_size=12, padding='valid')
+        self.conv1d_p3 = Conv1d(64, out_channels=96,
+                                kernel_size=12, padding='valid')
+        self.global_max_pool_p = AdaptiveMaxPool1d(1)
+
+        # Combined regressor
+        self.dense_1 = Linear(768 + 96, 1024)
+        self.dropout_1 = Dropout(p=0.1)
+        self.dense_2 = Linear(1024, 1024)
+        self.dropout_2 = Dropout(p=0.1)
+        self.dense_3 = Linear(1024, 512)
+        self.dense_4 = Linear(512, 1)
+        torch.nn.init.normal_(self.dense_4.weight)
+
+    def forward(self, xd, xp):
+
+        # Encode drugs/SMILES
+        xd = self.drug_encoder(xd).pooler_output
+
+        # Encode proteins
+        xp = self.embedding_p(xp.int()).transpose(1, 2)
+        xp = self.conv1d_p1(xp).relu()
+        xp = self.conv1d_p2(xp).relu()
+        xp = self.conv1d_p3(xp).relu()
+        xp = self.global_max_pool_p(xp).squeeze()
+
+        # Common regression head
         x = torch.cat([xd, xp], dim=1)
         x = self.dense_1(x).relu()
         x = self.dropout_1(x).relu()
