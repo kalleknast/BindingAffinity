@@ -34,6 +34,7 @@ DTA_PROT_DICT = {"A": 1, "C": 2, "B": 3, "E": 4, "D": 5, "G": 6,
 
 drug_tokenizer = AutoTokenizer.from_pretrained(
     "seyonec/ChemBERTa_zinc250k_v2_40k")
+prot_tokenizer = TAPETokenizer(vocab='iupac')
 
 
 def get_dictionary(fname, raw_data, kind):
@@ -52,31 +53,55 @@ def get_dictionary(fname, raw_data, kind):
     return dictionary
 
 
-def add_encoded_column(data, kind, mol_dict, encoder, encoded_len):
+def add_token_column(data, kind, tokenizer, mol_dict, max_len):
     """
     In-place
+
+    Arguments:
+    data        : A pandas DataFrame
+    kind        : Drug or protein or tokens. I.e. tokenize drugs or proteins.
+                  "prot" or "drug"
+    mol_dict    : A dictionary mapping from vocab to tokens. Only important
+                  when tokenizer is 'DeepDTA'. mol_dict is in-built with the
+                  BERT tokenizers ('BERT-drug' or 'BERT_prot').
+    tokenizer   : 'DeepDTA', or "BERT-drug" or 'BERT-prot'.
+    max_len     : Length of the tokenized sequence. Only relevant when using
+                  tokenizer == 'DeepDTA'.
     """
-    enc_col = f'{kind[:4]}_enc'
+    token_col = f'{kind[:4]}_enc'
     mols = data[kind].unique()  # Unique drugs or prot
-    data[enc_col] = [np.zeros(encoded_len,
-                              dtype=np.int32)] * data.shape[0]
+    data[token_col] = [np.zeros(max_len, dtype=np.int32)] * data.shape[0]
     for mol in mols:
-        if encoder == 'DeepDTA':
-            enc = encode_sequence(mol, mol_dict, encoded_len)
-        elif encoder == 'Bert-drug':
-            enc = drug_tokenizer.encode(mol,
-                                        padding="max_length",
+        if tokenizer == 'DeepDTA':
+            enc = tokenize_sequence(mol, mol_dict, max_len)
+        elif tokenizer == 'BERT-drug':
+            """
+            Max drug (input) length for the drug_model (BERT):
+                drug_model.config["max_position_embeddings"]: 514
+            Max drug length in Kiba is 502.
+            Padding lenght for tokenizer: 512
+            """
+            enc = drug_tokenizer.encode(mol, padding="max_length",
                                         max_length=512)
+        elif tokenizer == 'BERT-prot':
+            """
+            Max protein (input) length for the prot_model (BERT):
+                prot_model.config["max_position_embeddings"]: 8192
+            Max protein length in Kiba is 4130.
+            Padding lenght for tokenizer: 4200
+            """
+            enc = prot_tokenizer.encode(mol, padding="max_length",
+                                        max_length=4200)
 
-        data[enc_col] = np.where(data[kind] == mol,
-                                 pd.Series([enc]), data[enc_col])
+        data[token_col] = np.where(data[kind] == mol,
+                                   pd.Series([enc]), data[token_col])
 
 
-def encode_sequence(sequence, dictionary, encoded_len):
+def tokenize_sequence(sequence, dictionary, max_len):
     """
     """
-    enc = np.zeros(encoded_len, dtype=np.int32)
-    max_len = min(encoded_len, len(sequence))
+    enc = np.zeros(max_len, dtype=np.int32)
+    max_len = min(max_len, len(sequence))
 
     for i, c in enumerate(sequence[:max_len]):
         enc[i] = dictionary[c]
@@ -196,7 +221,7 @@ class DeepDTADataset(Dataset):
 class EmbeddingDataset(Dataset):
     def __init__(self, root, dataset_name='KIBA', partition='train',
                  data_splits=(.8, .2, 0.), partition_kind='drug',
-                 drug_encoder='DeepDTA', prot_encoder='DeepDTA'):
+                 drug_tokenizer='DeepDTA', prot_tokenizer='DeepDTA'):
         """
         The dataset is from https://github.com/hkmztrk/DeepDTA
 
@@ -210,8 +235,8 @@ class EmbeddingDataset(Dataset):
         partition_kind  : "pair" or "drug". How to split the data.
                           "pair" - splits on drug-protein pairs
                           "drug" - splits on the unique drugs
-        drug_encoder    : "DeepDTA" or "Bert-drug"
-        prot_encoder    : "DeepDTA" or "Bert-prot"
+        drug_tokenizer    : "DeepDTA" or "BERT-drug"
+        prot_tokenizer    : "DeepDTA" or "BERT-prot"
         """
 
         self.partition = partition
@@ -219,8 +244,8 @@ class EmbeddingDataset(Dataset):
         self.dataset_name = dataset_name
         self.data_splits = data_splits
         self.partition_kind = partition_kind
-        self.drug_encoder = drug_encoder
-        self.prot_encoder = prot_encoder
+        self.drug_tokenizer = drug_tokenizer
+        self.prot_tokenizer = prot_tokenizer
         self.raw_data = pd.read_csv(osp.join(self.raw_dir,
                                     f'DeepDTA_{dataset_name}.tsv'), sep='\t')
 
@@ -238,20 +263,20 @@ class EmbeddingDataset(Dataset):
 
         if self.dataset_name == 'DAVIS':
             # DAVIS: 0-pad SMILES to 85 and proteins to 1200. Truncate above.
-            self.drug_encoded_len = 85
-            self.prot_encoded_len = 1200
+            self.drug_tokenized_len = 85
+            self.prot_tokenized_len = 1200
         elif self.dataset_name == 'KIBA':
             # KIBA: 0-pad smiles to 100 and proteins to 1000. Truncate above.
-            self.drug_encoded_len = 100
-            self.prot_encoded_len = 1000
+            self.drug_tokenized_len = 100
+            self.prot_tokenized_len = 1000
 
         # Encode the SMLILES and protein strings
         # Drugs/SMILES
-        add_encoded_column(self.raw_data, 'Drug', self.drug_dict,
-                           self.drug_encoder, self.drug_encoded_len)
+        add_token_column(self.raw_data, 'Drug', self.drug_tokenizer,
+                         self.drug_dict, self.drug_tokenized_len)
         # Proteins
-        add_encoded_column(self.raw_data, 'Protein', self.prot_dict,
-                           self.prot_encoder, self.prot_encoded_len)
+        add_token_column(self.raw_data, 'Protein', self.prot_tokenizer,
+                         self.prot_dict, self.prot_tokenized_len)
 
         # Data split
         # train, valid, test, n_drug = partition_data_DTA(self.raw_data)
@@ -379,6 +404,8 @@ class HybridDataset(GraphDataset):
         self.raw_data = pd.read_csv(osp.join(root, 'raw',
                                     self.raw_file_name), sep='\t')
         self.data_splits = data_splits
+        self.drug_tokenizer = 'DeepDTA'
+        self.prot_tokenizer = 'DeepDTA'
 
         super(HybridDataset, self).__init__(root, None, None)
 
@@ -394,20 +421,20 @@ class HybridDataset(GraphDataset):
 
         if self.dataset_name == 'DAVIS':
             # DAVIS: 0-pad SMILES to 85 and proteins to 1200. Truncate above.
-            self.drug_encoded_len = 85
-            self.prot_encoded_len = 1200
+            self.drug_tokenized_len = 85
+            self.prot_tokenized_len = 1200
         elif self.dataset_name == 'KIBA':
             # KIBA: 0-pad smiles to 100 and proteins to 1000. Truncate above.
-            self.drug_encoded_len = 100
-            self.prot_encoded_len = 1000
+            self.drug_tokenized_len = 100
+            self.prot_tokenized_len = 1000
 
         # Encode the SMLILES and protein strings
         # Drugs/SMILES
-        add_encoded_column(self.raw_data, 'Drug',
-                           self.drug_dict, self.drug_encoded_len)
+        add_token_column(self.raw_data, 'Drug', self.drug_tokenizer,
+                         self.drug_dict, self.drug_tokenized_len)
         # Proteins
-        add_encoded_column(self.raw_data, 'Protein',
-                           self.prot_dict, self.prot_encoded_len)
+        add_token_column(self.raw_data, 'Protein', self.prot_tokenizer,
+                         self.prot_dict, self.prot_tokenized_len)
 
         # Split data into train/valid/test sets
         train, valid, test, n_drug = partition_data(self.data_splits,
@@ -509,20 +536,20 @@ class HybridDataset(GraphDataset):
 #
 #         if self.dataset_name == 'DAVIS':
 #             # DAVIS: 0-pad SMILES to 85 and proteins to 1200. Truncate above.
-#             # self.drug_encoded_len = 85
-#             self.prot_encoded_len = 1200
+#             # self.drug_tokenized_len = 85
+#             self.prot_tokenized_len = 1200
 #         elif self.dataset_name == 'KIBA':
 #             # KIBA: 0-pad smiles to 100 and proteins to 1000. Truncate above.
-#             # self.drug_encoded_len = 100
-#             self.prot_encoded_len = 1000
+#             # self.drug_tokenized_len = 100
+#             self.prot_tokenized_len = 1000
 #
 #         # Encode the SMLILES and protein strings
 #         # Drugs/SMILES
-#         # add_encoded_column(self.raw_data, 'Drug',
-#         #                    self.drug_dict, self.drug_encoded_len)
+#         # add_token_column(self.raw_data, 'Drug', self.drug_tokenizer,
+#         #                    self.drug_dict, self.drug_tokenized_len)
 #         # Proteins
-#         add_encoded_column(self.raw_data, 'Protein',
-#                            self.prot_dict, self.prot_encoded_len)
+#         add_token_column(self.raw_data, 'Protein', self.prot_tokenizer,
+#                            self.prot_dict, self.prot_tokenized_len)
 #
 #         # Split data into train/valid/test sets
 #         train, valid, test, n_drug = partition_data(self.data_splits,
@@ -585,7 +612,7 @@ class HybridDataset(GraphDataset):
 #                 'Y': row['Y']}
 #
 #         # Max input size to the BERT drug encoder seems to be 514
-#         # See: drug_encoder.config["max_position_embeddings"]: 514
+#         # See: drug_tokenizer.config["max_position_embeddings"]: 514
 #         # But I'm not 100%
 #         # The longest SMILES in Kiba is 502 tokens
 #         drug_data = torch.tensor(self.drug_tokenizer.encode(row['Drug'],

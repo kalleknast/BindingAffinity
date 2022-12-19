@@ -29,13 +29,13 @@ print(f"Using {device} device")
 # RuntimeError: torch.cat(): input types can't be cast to the desired output
 # type Long
 dataset = EmbeddingDataset(root, dataset_name, partition_kind=partition_kind,
-                           drug_encoder='Bert-drug', prot_encoder='DeepDTA')
+                           drug_tokenizer='BERT-drug', prot_tokenizer='DeepDTA')
 data_loader = DataLoader(dataset,
                          batch_size=batch_size,
                          shuffle=True)
 
 model = MTDTI(dataset).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 loss_fn = torch.nn.MSELoss()
 
 
