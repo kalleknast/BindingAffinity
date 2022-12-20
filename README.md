@@ -79,10 +79,14 @@ The paper [Modelling Drug-Target Binding Affinity using a BERT based Graph Neura
 ##### Issues and solutions
 
 ###### Data
-A GCN takes nodes and edges as inputs. The paper describes embedding both proteins and drugs using pre-trained BERT models where each token is embedded as a 768-long vector. This results in two issues that are not mentioned in the paper.
-####### Proteins
-The primary protein sequence is tokenized into amino acids and there are trivial edges between neighbouring tokens. However, a protein's 3D structure puts some amino acids very close to each other and edges between those should also be included. The authors do not mention anything about this. Here, only edges to neighbours in the primary sequence are included.
-####### Drugs
+A GCN takes nodes and edges as inputs. The paper describes embedding both proteins and drugs using pre-trained BERT models where each token (node) is embedded as a 768-long vector. This results in two issues that are not mentioned in the paper.
+
+**Proteins**
+
+The primary protein sequence is tokenized into amino acids and there are trivial edges between neighbouring tokens (nodes). However, a protein's 3D structure puts some amino acids very close to each other and edges between those should also be included. Incorporating these edges into the dataset requires knowledge of the proteins' 3D structure (not provided in the Kiba or Davis). The authors do where or if they added 3D-dependent edges. Here, only edges to neighbours in the primary sequence are included making the protein graph convolutions equivalent to 1-D convolutions with a kernes size of three.
+
+**Drugs**
+
 The drugs are tokenized with a Byte-Pair Encoder (BPE) from Simplified molecular-input line-entry system [SMILES](https://en.wikipedia.org/wiki/Simplified_molecular-input_line-entry_system). A BPE combines characters to produce a fixed-size vocabulary where frequently occurring subsequences of characters are combined into tokens. The particular BPE (probably) used in the paper separates bond tokens and atom tokens so that multi-character tokens are made of either only atoms (nodes) or only bonds. An embedded SMILES will be made up of both node (atoms) and bond vectors. Since the bonds often correspond to small groups of atoms, the edges computed directly from a SMILES string do not match (the latter edges are between atoms). The paper does not specify how this was resolved. Here, only edges between nodes were included, and embedding vectors corresponding to bonds were removed (i.e. only node vectors were included as inputs to the GCN).
 
 ###### Network architecture
