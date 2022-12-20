@@ -94,8 +94,8 @@ The network architecture is described in Fig. 1 of the paper.
 
 ![Fig. 1: BERT-GCN network architecture](fig/Graph-BERT-1.png)
 
- 1. **Issue**: In step 1, there is an average pooling layer after embedding (both protein and drug). This layer collapses the tensors over the nodes. The purpose of the average pooling layer before the GCN layers is unclear. GCN layers takes as inputs nodes and edges, thus, an output averaged over nodes cannot be used as input to a GCN layer.  (Collapsing over nodes is normally done as a readout layer right before the classification/regression head.) **Solution**: This average pooling layer was omitted.
- 2. **Issue**:In step 3, there is a concatenation layer directly after the GCN layers. What is being concatenated is unclear. **Solution**: This concatenation layer was omitted.
+ 1. *Issue*: In step 1, there is an average pooling layer after embedding (both protein and drug). This layer collapses the tensors over the nodes. The purpose of the average pooling layer before the GCN layers is unclear. GCN layers takes as inputs nodes and edges, thus, an output averaged over nodes cannot be used as input to a GCN layer.  (Collapsing over nodes is normally done as a readout layer right before the classification/regression head.) *Solution*: This average pooling layer was omitted.
+ 2. *Issue*: In step 2, there is a concatenation layer directly after the GCN layers. What is being concatenated is unclear. *Solution*: This concatenation layer was omitted.
 <!--  3. **Issue**: In step 3, there is no readout layer that collapses over nodes. Thus, the input to the final dense layers will have a variable number of nodes. This does not work. **Solution**: After the GCN layers, an average pooling layer was added. -->
  
 
