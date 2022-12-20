@@ -96,7 +96,7 @@ The network architecture is described in Fig. 1 of the paper.
 
  1. *Issue*: In step 1, there is an average pooling layer after embedding (both protein and drug). This layer collapses the tensors over the nodes. The purpose of the average pooling layer before the GCN layers is unclear. GCN layers take as inputs nodes and edges; thus, an output averaged over nodes cannot be used as input to a GCN layer. (Collapsing over nodes is typically done as a readout layer right before the classification/regression head.) *Solution*: This average pooling layer was omitted.
  2. *Issue*: Step 2 has a concatenation layer directly after the GCN layers. What is being concatenated needs to be clarified. *Solution*: This concatenation layer was omitted.
-<!--  3. **Issue**: In step 3, there is no readout layer that collapses over nodes. Thus, the input to the final dense layers will have a variable number of nodes. Something else is needed. **Solution**: After the GCN layers, an average pooling layer was added. -->
+3. **Issue**: In step 3, there is no readout layer that collapses over nodes. Thus, the input to the final dense layers will have a variable number of nodes. Something else is needed. **Solution**: After the GCN layers, an average pooling layer was added.
  
 
 #### Train and evaluate
