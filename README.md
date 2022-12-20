@@ -67,6 +67,8 @@ In the original [MT-DTI paper](https://arxiv.org/abs/1908.06760) the model was t
 python train_MTDTI.py
 ```
 
+![MT-DTI training history](fig/training_history_MTDTI-zinc250k_epochs62.png)
+
 #### TODO
 - [x] Try BERT pre-trained on the 10M PubChem dataset ("seyonec/PubChem10M_SMILES_*" at https://huggingface.co/seyonec).
   - Replaced [ChemBERTa_zinc250k_v2_40k](https://huggingface.co/seyonec/ChemBERTa_zinc250k_v2_40k) with the 77M PubChem MTR model [DeepChem/ChemBERTa-77M-MTR](https://huggingface.co/DeepChem).
