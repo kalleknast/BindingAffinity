@@ -104,6 +104,7 @@ This will download and process the data the first time it runs.
 ```terminal
 python train_BertGCN.py
 ```
+The implementation provided here does **not** reach the performance reported in the [paper](https://openreview.net/pdf?id=Zqf6RGp5lqf).
 
 
  
