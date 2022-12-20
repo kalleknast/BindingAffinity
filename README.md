@@ -56,11 +56,11 @@ python train_BertDTA.py
 ```
 
 #### MT-DTI
-The model has roughly the same archtecture as [DeepDTA](https://github.com/hkmztrk/DeepDTA) but differs in that the drug SMILES are encoded by a pre-traied BERT encoder.
+The model has roughly the same architecture as [DeepDTA](https://github.com/hkmztrk/DeepDTA) but differs in that a pre-trained BERT encoder encodes the drug SMILES.
 
-The original TenforFlow implementation is available [here](https://github.com/deargen/mt-dti). This implementation differs in that it relies on a pre-trained drug encoder from [chemBERTa](https://github.com/seyonechithrananda/bert-loves-chemistry) (ChemBERTa_zinc250k_v2_40k). The chemBERTa model is pre-trained on a smaller dataset (ZINC 250k) and not all the 97,092,853 SMILES form PubChem used in the original [MT-DTI model](https://github.com/deargen/mt-dti).
+The original TenforFlow implementation is available [here](https://github.com/deargen/mt-dti). The implementation here differs in that it relies on a pre-trained drug encoder from [DeepChem/ChemBERTa-77M-MTR](https://huggingface.co/DeepChem) that, after initial MLM pre-training, it has been fine-tuned with [Multi Task Regression](https://arxiv.org/abs/2209.01712). For the current DTI task, most of the drug encoder (ChemBERTa) is frozen, and only the final pooler layer is newly initialized and trained.
 
-Model training takes verly long time on a GPU due to the BERT drug encoder.
+In the original [MT-DTI paper](https://arxiv.org/abs/1908.06760) the model was trained for 1000 epochs. However, the training takes a long time on a GPU due to the BERT drug encoder, so I only trained for 100 epochs.
 
 #### Train and evaluate
 ```terminal
@@ -68,7 +68,8 @@ python train_MTDTI.py
 ```
 
 #### TODO
-- [ ] Try BERT pre-trained on the 10M PubChem dataset ("seyonec/PubChem10M_SMILES_*" at https://huggingface.co/seyonec).
+- [x] Try BERT pre-trained on the 10M PubChem dataset ("seyonec/PubChem10M_SMILES_*" at https://huggingface.co/seyonec).
+  - Replaced [ChemBERTa_zinc250k_v2_40k](https://huggingface.co/seyonec/ChemBERTa_zinc250k_v2_40k) with the 77M PubChem MTR model [DeepChem/ChemBERTa-77M-MTR](https://huggingface.co/DeepChem).
 
 #### BERT-GCN
 The paper [Modelling Drug-Target Binding Affinity using a BERT based Graph Neural network](https://openreview.net/pdf?id=Zqf6RGp5lqf) by Lennox, Robertson and Devereux presents a graph convolutional neural network (GCN) trained to predict the binding affinity of drugs to proteins. Their model takes as input BERT-embedded protein sequences and drug molecules. This combination of BERT embeddings and a graph network is relatively novel, and the model achieves (at publication) state-of-the-art results. However, the paper leaves many technical details unspecified, and no code is provided. Thus, the goal is the implement the GCN and replicate the results from the paper.
