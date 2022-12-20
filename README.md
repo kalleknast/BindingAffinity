@@ -30,16 +30,16 @@ mkdir -p data/raw
 mkdir -p data/processed
 ```
 
-### Models
+## Models
 
-#### DeepDTA
+### DeepDTA
 The DeepDTA model is presented in [DeepDTA: Deep Drug-Target Binding Affinity Prediction](https://arxiv.org/abs/1801.10193). The original code is available [here](https://github.com/hkmztrk/DeepDTA).
 
 #### Train and evaluate
 ```terminal
 python train_deepDTA.py
 ```
-#### Hybrid -- Graph-Embeddings
+### Hybrid -- Graph-Embeddings
 The Hybrid model combines a GCN-branch for drug encoding and an embedding (DeepDTA-style) branch for protein encoding. In the drug branch, the drugs [SMILES](https://en.wikipedia.org/wiki/Simplified_molecular-input_line-entry_system) are first represented as graphs (nodes and edges) followed by three layers of graph convolutions. These are combined with protein encodings in a common regression head. Original code [here](https://github.com/kalleknast/BindingAffinity).
 
 #### Train and evaluate
@@ -47,7 +47,7 @@ The Hybrid model combines a GCN-branch for drug encoding and an embedding (DeepD
 python train_Hybrid.py
 ```
 
-#### BERT-CNN
+### BERT-CNN
 BERT embeddings and 1D convolutional branches as in DeepDTA. Original code [here](https://github.com/kalleknast/BindingAffinity). 
 
 #### Train and evaluate
@@ -55,10 +55,10 @@ BERT embeddings and 1D convolutional branches as in DeepDTA. Original code [here
 python train_BertDTA.py
 ```
 
-#### MT-DTI
+### MT-DTI
 The model has roughly the same architecture as [DeepDTA](https://github.com/hkmztrk/DeepDTA) but differs in that a pre-trained BERT encoder encodes the drug SMILES.
 
-The original TenforFlow implementation is available [here](https://github.com/deargen/mt-dti). The implementation here differs in that it relies on a pre-trained drug encoder from [DeepChem/ChemBERTa-77M-MTR](https://huggingface.co/DeepChem) that, after initial MLM pre-training, it has been fine-tuned with [Multi Task Regression](https://arxiv.org/abs/2209.01712). For the current DTI task, most of the drug encoder (ChemBERTa) is frozen, and only the final pooler layer is newly initialized and trained.
+The original TenforFlow implementation is available [here](https://github.com/deargen/mt-dti). The implementation here differs in that it relies on a pre-trained drug encoder from [DeepChem/ChemBERTa-77M-MTR](https://huggingface.co/DeepChem) that, after initial MLM pre-training, it has been fine-tuned with [Multi Task Regression](https://arxiv.org/abs/2209.01712). The output of ChemBERTa-77M-MTR is 386 elements per token and not 784 as in the [original model](https://github.com/deargen/mt-dti). For the current DTI task, most of the drug encoder (ChemBERTa) is frozen, and only the final pooler layer is newly initialized and trained.
 
 In the original [MT-DTI paper](https://arxiv.org/abs/1908.06760) the model was trained for 1000 epochs. However, the training takes a long time on a GPU due to the BERT drug encoder, so I only trained for 100 epochs.
 
@@ -73,30 +73,30 @@ python train_MTDTI.py
 - [x] Try BERT pre-trained on the 10M PubChem dataset ("seyonec/PubChem10M_SMILES_*" at https://huggingface.co/seyonec).
   - Replaced [ChemBERTa_zinc250k_v2_40k](https://huggingface.co/seyonec/ChemBERTa_zinc250k_v2_40k) with the 77M PubChem MTR model [DeepChem/ChemBERTa-77M-MTR](https://huggingface.co/DeepChem).
 
-#### BERT-GCN
+### BERT-GCN
 The paper [Modelling Drug-Target Binding Affinity using a BERT based Graph Neural network](https://openreview.net/pdf?id=Zqf6RGp5lqf) by Lennox, Robertson and Devereux presents a graph convolutional neural network (GCN) trained to predict the binding affinity of drugs to proteins. Their model takes as input BERT-embedded protein sequences and drug molecules. This combination of BERT embeddings and a graph network is relatively novel, and the model achieves (at publication) state-of-the-art results. However, the paper leaves many technical details unspecified, and no code is provided. Thus, the goal is the implement the GCN and replicate the results from the paper.
 
-##### Issues and solutions
+#### Issues and solutions
 
-###### Data
-A GCN takes nodes and edges as inputs. The paper describes embedding both proteins and drugs using pre-trained BERT models where each token (node) is embedded as a 768-long vector. This results in two issues that are not mentioned in the paper.
+##### Data
+A GCN takes nodes and edges as inputs. The paper describes embedding both proteins and drugs using pre-trained BERT models where each token (node) is embedded as a 784-long vector. This results in two issues that are not mentioned in the paper.
 
-*Proteins*
+###### Proteins
 
-The primary protein sequence is tokenized into amino acids and there are trivial edges between neighbouring tokens (nodes). However, a protein's 3D structure puts some amino acids very close to each other and edges between those should also be included. Incorporating these edges into the dataset requires knowledge of the proteins' 3D structure (not provided in the Kiba or Davis). The authors do where or if they added 3D-dependent edges. Here, only edges to neighbours in the primary sequence are included making the protein graph convolutions equivalent to 1-D convolutions with a kernes size of three.
+The primary protein sequence is tokenized into amino acids, and there are trivial edges between neighbouring tokens (nodes). However, a protein's 3D structure puts some amino acids very close to each other and edges between those should also be included. Incorporating these edges into the dataset requires knowledge of the proteins' 3D structure (not provided in the Kiba or Davis). The authors do where or if they added 3D-dependent edges. Here, only edges to neighbours in the primary sequence are included making the protein graph convolutions equivalent to 1-D convolutions with a kernel size of three.
 
-*Drugs*
+###### Drugs
 
 The drugs are tokenized with a Byte-Pair Encoder (BPE) from Simplified molecular-input line-entry system [SMILES](https://en.wikipedia.org/wiki/Simplified_molecular-input_line-entry_system). A BPE combines characters to produce a fixed-size vocabulary where frequently occurring subsequences of characters are combined into tokens. The particular BPE (probably) used in the paper separates bond tokens and atom tokens so that multi-character tokens are made of either only atoms (nodes) or only bonds (edges). An embedded SMILES will be made up of both node (atoms) and bond vectors. Since the bonds often correspond to small groups of atoms, the edges computed directly from a SMILES string (using `torch_geometric.utils.from_smiles()`) do not match (edges from the latter are between atoms and not multi-atom BPE tokens). The paper does not specify how this was resolved. Here, only edges between nodes were included, and embedding vectors corresponding to bonds were removed (i.e. only node vectors were included as inputs to the GCN).
 
-###### Network architecture
+##### Network architecture
 The network architecture is described in Fig. 1 of the paper.
 
 ![Fig. 1: BERT-GCN network architecture](fig/Graph-BERT-1.png)
 
- 1. *Issue*: In step 1, there is an average pooling layer after embedding (both protein and drug). This layer collapses the tensors over the nodes. The purpose of the average pooling layer before the GCN layers is unclear. GCN layers takes as inputs nodes and edges, thus, an output averaged over nodes cannot be used as input to a GCN layer.  (Collapsing over nodes is normally done as a readout layer right before the classification/regression head.) *Solution*: This average pooling layer was omitted.
- 2. *Issue*: In step 2, there is a concatenation layer directly after the GCN layers. What is being concatenated is unclear. *Solution*: This concatenation layer was omitted.
-<!--  3. **Issue**: In step 3, there is no readout layer that collapses over nodes. Thus, the input to the final dense layers will have a variable number of nodes. This does not work. **Solution**: After the GCN layers, an average pooling layer was added. -->
+ 1. *Issue*: In step 1, there is an average pooling layer after embedding (both protein and drug). This layer collapses the tensors over the nodes. The purpose of the average pooling layer before the GCN layers is unclear. GCN layers take as inputs nodes and edges; thus, an output averaged over nodes cannot be used as input to a GCN layer. (Collapsing over nodes is typically done as a readout layer right before the classification/regression head.) *Solution*: This average pooling layer was omitted.
+ 2. *Issue*: Step 2 has a concatenation layer directly after the GCN layers. What is being concatenated needs to be clarified. *Solution*: This concatenation layer was omitted.
+<!--  3. **Issue**: In step 3, there is no readout layer that collapses over nodes. Thus, the input to the final dense layers will have a variable number of nodes. Something else is needed. **Solution**: After the GCN layers, an average pooling layer was added. -->
  
 
 #### Train and evaluate
@@ -104,12 +104,9 @@ This will download and process the data the first time it runs.
 ```terminal
 python train_BertGCN.py
 ```
-The implementation provided here does **not** reach the performance reported in the [paper](https://openreview.net/pdf?id=Zqf6RGp5lqf).
+This implementation does **not** re-produce the performance reported in the [paper](https://openreview.net/pdf?id=Zqf6RGp5lqf).
 
-
- 
-
-## TODO
+#### TODO
  - [ ] See if the actual `edge_index` for the proteins can be downloaded from the [UniProt](https://www.uniprot.org/) protein database.
  - [ ] Add residual connections to the GCN layers.
 
