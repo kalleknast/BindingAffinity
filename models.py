@@ -265,7 +265,7 @@ class Hybrid(torch.nn.Module):
 
 class MTDTI(torch.nn.Module):
 
-    def __init__(self, dataset):
+    def __init__(self, dataset, drug_encoder='DeepChem/ChemBERTa-77M-MTR'):
         super(MTDTI, self).__init__()
         """
         From https://github.com/deargen/mt-dti
@@ -274,14 +274,9 @@ class MTDTI(torch.nn.Module):
             model_fn_v11(self, features, labels, mode, params)
         """
 
-        # Encode SMILES
-        # BERT
-        # self.drug_encoder = AutoModel.from_pretrained(
-        #     "seyonec/ChemBERTa_zinc250k_v2_40k")
-        self.drug_encoder = AutoModel.from_pretrained(
-            'DeepChem/ChemBERTa-77M-MTR')
-
-        # Encode protein (DeepDTA-style)
+        # Encode SMILES with BERT
+        self.drug_encoder = AutoModel.from_pretrained(drug_encoder)
+        # Encode protein with 1D CNN (DeepDTA-style)
         self.embedding_p = Embedding(num_embeddings=dataset.len_prot_vocab + 1,
                                      embedding_dim=128)
         self.conv1d_p1 = Conv1d(128, out_channels=32,
@@ -291,9 +286,8 @@ class MTDTI(torch.nn.Module):
         self.conv1d_p3 = Conv1d(64, out_channels=96,
                                 kernel_size=12, padding='valid')
         self.global_max_pool_p = AdaptiveMaxPool1d(1)
-
-        # Combined regressor
-        self.dense_1 = Linear(384 + 96, 1024)
+        # Common regression head
+        self.dense_1 = Linear(self.drug_encoder.config.hidden_size + 96, 1024)
         self.dropout_1 = Dropout(p=0.1)
         self.dense_2 = Linear(1024, 1024)
         self.dropout_2 = Dropout(p=0.1)
@@ -305,14 +299,12 @@ class MTDTI(torch.nn.Module):
 
         # Encode drugs/SMILES
         xd = self.drug_encoder(xd).pooler_output
-
         # Encode proteins
         xp = self.embedding_p(xp.int()).transpose(1, 2)
         xp = self.conv1d_p1(xp).relu()
         xp = self.conv1d_p2(xp).relu()
         xp = self.conv1d_p3(xp).relu()
         xp = self.global_max_pool_p(xp).squeeze()
-
         # Common regression head
         x = torch.cat([xd, xp], dim=1)
         x = self.dense_1(x).relu()
@@ -448,17 +440,17 @@ class BertGCN(torch.nn.Module):
     def __init__(self, dataset, n_hidden=128):
         super(BertGCN, self).__init__()
 
-        self.batchnorm = BatchNorm(dataset.num_node_features)
-
         # Drug branch
-        self.dense_d1 = GraphLinear(dataset.num_node_features, 2*n_hidden)
+        self.batchnorm_d = BatchNorm(dataset.num_drug_features)
+        self.dense_d1 = GraphLinear(dataset.num_drug_features, 2*n_hidden)
         self.dense_d2 = GraphLinear(2*n_hidden, n_hidden)
         self.gconv_d1 = GCNConv(n_hidden, n_hidden)
         self.gconv_d2 = GCNConv(n_hidden, n_hidden)
         self.gconv_d3 = GCNConv(n_hidden, n_hidden)
 
         # Protein branch
-        self.dense_p1 = GraphLinear(dataset.num_node_features, 2*n_hidden)
+        self.batchnorm_p = BatchNorm(dataset.num_prot_features)
+        self.dense_p1 = GraphLinear(dataset.num_prot_features, 2*n_hidden)
         self.dense_p2 = GraphLinear(2*n_hidden, n_hidden)
         self.gconv_p1 = GCNConv(n_hidden, n_hidden)
         self.gconv_p2 = GCNConv(n_hidden, n_hidden)
@@ -472,7 +464,7 @@ class BertGCN(torch.nn.Module):
     def forward(self, xd, xp):
 
         # Encode drugs/SMILES
-        xd.x = self.batchnorm(xd.x)
+        xd.x = self.batchnorm_d(xd.x)
         xd.x = self.dense_d1(xd.x).relu()
         xd.x = self.dense_d2(xd.x).relu()
         xd.x = self.gconv_d1(xd.x, xd.edge_index).relu()
@@ -481,7 +473,7 @@ class BertGCN(torch.nn.Module):
         xd.x = global_mean_pool(xd.x, xd.batch)  # average pooling
 
         # Encode proteins
-        xp.x = self.batchnorm(xp.x)
+        xp.x = self.batchnorm_p(xp.x)
         xp.x = self.dense_p1(xp.x).relu()
         xp.x = self.dense_p2(xp.x).relu()
         xp.x = self.gconv_p1(xp.x, xp.edge_index).relu()

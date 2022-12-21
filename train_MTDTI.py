@@ -6,13 +6,17 @@ from plot import plot_predictions, plot_losses
 from models import MTDTI
 import json
 
-model_name = 'MTDTI'
+model_name = 'MTDTI-zinc250k'
 dataset_name = 'KIBA'
 root = 'data'
 epochs = 200
-partition_kind = 'pair'
-# partition_kind = 'drug'
+# partition_kind = 'pair'
+partition_kind = 'drug'
 batch_size = 256
+# drug_encoder = 'DeepChem/ChemBERTa-77M-MTR'
+# drug_encoder = 'DeepChem/ChemBERTa-77M-MLM'
+drug_encoder = "seyonec/ChemBERTa_zinc250k_v2_40k"
+# drug_encoder = 'seyonec/PubChem10M_SMILES_BPE_50k'
 
 model_name = f'{model_name}_{partition_kind}split'
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -20,12 +24,13 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using {device} device")
 
 dataset = EmbeddingDataset(root, dataset_name, partition_kind=partition_kind,
-                           drug_tokenizer='BERT-drug', prot_tokenizer='DeepDTA')
+                           drug_tokenizer=drug_encoder,
+                           prot_tokenizer='DeepDTA')
 data_loader = DataLoader(dataset,
                          batch_size=batch_size,
                          shuffle=True)
 
-model = MTDTI(dataset).to(device)
+model = MTDTI(dataset, drug_encoder=drug_encoder).to(device)
 # Some weights of RobertaModel were not initialized from the model checkpoint
 # at DeepChem/ChemBERTa-77M-MTR and are newly initialized:
 # ['roberta.pooler.dense.weight', 'roberta.pooler.dense.bias']

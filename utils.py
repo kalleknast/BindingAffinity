@@ -212,13 +212,14 @@ def edges_from_protein_sequence(prot_seq):
     n = len(prot_seq)
     # first row in COO format
     # each node is connected to left and right except the first an last.
-    row0 = np.repeat(np.arange(n), 2)[1:-1]
+    rows = np.zeros((n, 2), dtype=int)
+    rows[:, 0] = np.repeat(np.arange(n), 2)[1:-1]
     # second row in COO format
-    row1 = row0.copy()
-    for i in range(0, len(row0), 2):
-        row1[i], row1[i+1] = row1[i+1], row1[i]
+    rows[:, 1] = rows[:, 0].copy()
+    for i in range(0, n, 2):
+        rows[i, 1], rows[i+1, 1] = rows[i+1, 1], rows[i, 1]
 
-    edge_index = torch.tensor([row0, row1], dtype=torch.long)
+    edge_index = torch.tensor(rows, dtype=torch.long)
 
     return edge_index
 

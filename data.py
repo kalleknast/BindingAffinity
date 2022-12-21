@@ -12,10 +12,6 @@ from transformers import AutoModel, AutoTokenizer
 from utils import edges_from_protein_sequence, smiles_edges_to_token_edges
 from utils import get_dictionary
 
-DRUG_BERT_NAME = 'DeepChem/ChemBERTa-77M-MTR'
-# OLD:  DRUG_BERT_NAME = "seyonec/ChemBERTa_zinc250k_v2_40k"
-PROT_BERT_NAME = 'bert-base'
-
 # Drug dictionary from DeepDTA
 DTA_DRUG_DICT = {"#": 29, "%": 30, ")": 31, "(": 1, "+": 32, "-": 33, "/": 34,
                  ".": 2, "1": 35, "0": 3, "3": 36, "2": 4, "5": 37, "4": 5,
@@ -33,11 +29,8 @@ DTA_PROT_DICT = {"A": 1, "C": 2, "B": 3, "E": 4, "D": 5, "G": 6, "F": 7,
                  "N": 14, "Q": 15, "P": 16, "S": 17, "R": 18, "U": 19,
                  "T": 20, "W": 21, "V": 22, "Y": 23, "X": 24, "Z": 25}
 
-drug_tokenizer = AutoTokenizer.from_pretrained(DRUG_BERT_NAME)
-prot_tokenizer = TAPETokenizer(vocab='iupac')
 
-
-def add_token_column(data, kind, tokenizer, mol_dict, max_len):
+def add_token_column(data, kind, tokenizer_name, mol_dict, max_len):
     """
     In-place
 
@@ -48,34 +41,28 @@ def add_token_column(data, kind, tokenizer, mol_dict, max_len):
     mol_dict    : A dictionary mapping from vocab to tokens. Only important
                   when tokenizer is 'DeepDTA'. mol_dict is in-built with the
                   BERT tokenizers ('BERT-drug' or 'BERT_prot').
-    tokenizer   : 'DeepDTA', or "BERT-drug" or 'BERT-prot'.
+    tokenizer   : 'DeepDTA', or one of the */ChemBERTa*
     max_len     : Length of the tokenized sequence. Only relevant when using
                   tokenizer == 'DeepDTA'.
     """
     token_col = f'{kind[:4]}_enc'
     mols = data[kind].unique()  # Unique drugs or prot
     data[token_col] = [np.zeros(max_len, dtype=np.int32)] * data.shape[0]
+
+    if '/ChemBERTa' in tokenizer_name:
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+
     for mol in mols:
-        if tokenizer == 'DeepDTA':
+        if tokenizer_name == 'DeepDTA':
             enc = tokenize_sequence(mol, mol_dict, max_len)
-        elif tokenizer == 'BERT-drug':
+        elif '/ChemBERTa' in tokenizer_name:
             """
-            Max drug (input) length for the drug_model (BERT):
-                drug_model.config["max_position_embeddings"]: 514
-            Max drug length in Kiba is 502.
-            Padding lenght for tokenizer: 512
+            Max drug (input) length for the drug_encoder (BERT): 512
+            Max drug length in Kiba is 502 (but this depends of the tokenizer).
+            Padding length for tokenizer: 512
             """
-            enc = drug_tokenizer.encode(mol, padding="max_length",
-                                        truncation=True, max_length=512)
-        elif tokenizer == 'BERT-prot':
-            """
-            Max protein (input) length for the prot_model (BERT):
-                prot_model.config["max_position_embeddings"]: 8192
-            Max protein length in Kiba is 4130.
-            Padding lenght for tokenizer: 4200
-            """
-            enc = prot_tokenizer.encode(mol, padding="max_length",
-                                        max_length=4200)
+            enc = tokenizer.encode(mol, padding="max_length",
+                                   truncation=True, max_length=512)
 
         data[token_col] = np.where(data[kind] == mol,
                                    pd.Series([enc]), data[token_col])
@@ -133,7 +120,7 @@ def partition_data(data_splits, data, kind='drug'):
         n = len(data)
         n_train = int(round(n * data_splits[0]))
         n_valid = int(round(n * data_splits[1]))
-        n_test = int(round(n * data_splits[2]))
+        # n_test = int(round(n * data_splits[2]))
         ids = np.arange(n, dtype=int)
         random.shuffle(ids)
         train = {'ids': ids[:n_train]}
@@ -171,8 +158,12 @@ class DeepDTADataset(Dataset):
         """
 
         self.partition = partition
-        train_df = pd.read_pickle(f'data/processed/train_data_fold{fold}.pkl')
-        valid_df = pd.read_pickle(f'data/processed/valid_data_fold{fold}.pkl')
+        train_df = pd.read_pickle(osp.join('data',
+                                           'processed',
+                                           f'train_data_fold{fold}.pkl'))
+        valid_df = pd.read_pickle(osp.join('data',
+                                           'processed',
+                                           f'valid_data_fold{fold}.pkl'))
         self.train_x = [np.stack(train_df['Drug_enc']).astype(np.int32),
                         np.stack(train_df['Prot_enc']).astype(np.int32)]
         self.train_y = np.stack(train_df['Y']).reshape((-1, 1))
@@ -206,7 +197,7 @@ class EmbeddingDataset(Dataset):
     def __init__(self, root, dataset_name='KIBA', partition='train',
                  data_splits=(.8, .2, 0.), partition_kind='drug',
                  drug_tokenizer='DeepDTA', prot_tokenizer='DeepDTA'):
-        """
+        """dataset
         The raw Kiba dataset is from https://github.com/hkmztrk/DeepDTA
 
         Arguments
@@ -219,7 +210,7 @@ class EmbeddingDataset(Dataset):
         partition_kind  : "pair" or "drug". How to split the data.
                           "pair" - splits on drug-protein pairs
                           "drug" - splits on the unique drugs
-        drug_tokenizer    : "DeepDTA" or "BERT-drug"
+        drug_tokenizer    : "DeepDTA" or some of */ChemBERTa*
         prot_tokenizer    : "DeepDTA" or "BERT-prot"
         """
 
@@ -228,8 +219,8 @@ class EmbeddingDataset(Dataset):
         self.dataset_name = dataset_name
         self.data_splits = data_splits
         self.partition_kind = partition_kind
-        self.drug_tokenizer = drug_tokenizer
-        self.prot_tokenizer = prot_tokenizer
+        self.drug_tokenizer_name = drug_tokenizer
+        self.prot_tokenizer_name = prot_tokenizer
         self.raw_data = pd.read_csv(osp.join(self.raw_dir,
                                     f'DeepDTA_{dataset_name}.tsv'), sep='\t')
 
@@ -256,10 +247,10 @@ class EmbeddingDataset(Dataset):
 
         # Encode the SMLILES and protein strings
         # Drugs/SMILES
-        add_token_column(self.raw_data, 'Drug', self.drug_tokenizer,
+        add_token_column(self.raw_data, 'Drug', self.drug_tokenizer_name,
                          self.drug_dict, self.drug_tokenized_len)
         # Proteins
-        add_token_column(self.raw_data, 'Protein', self.prot_tokenizer,
+        add_token_column(self.raw_data, 'Protein', self.prot_tokenizer_name,
                          self.prot_dict, self.prot_tokenized_len)
 
         # Data split
@@ -421,7 +412,9 @@ class HybridDataset(GraphDataset):
 class BertDataset(GraphDataset):
 
     def __init__(self, root, dataset_name='KIBA', partition='train',
-                 data_splits=(.8, .2, 0.), partition_kind='drug'):
+                 drug_encoder='DeepChem/ChemBERTa-77M-MTR',
+                 prot_encoder='bert-base', data_splits=(.8, .2, 0.),
+                 partition_kind='drug'):
         """
         partition_kind  : "pair" or "drug". How to split the data.
                           "pair" - splits on drug-protein pairs
@@ -432,6 +425,15 @@ class BertDataset(GraphDataset):
         self.dataset_name = dataset_name
         self.raw_file_name = f'DeepDTA_{dataset_name}.tsv'
         self.data_splits = data_splits
+        self.drug_encoder_name = drug_encoder
+        self.prot_encoder_name = prot_encoder
+        self.drug_encoder = AutoModel.from_pretrained(drug_encoder)
+        self.drug_tokenizer = AutoTokenizer.from_pretrained(drug_encoder)
+        self.prot_encoder = \
+            ProteinBertModel.from_pretrained(self.prot_encoder_name)
+        self.prot_tokenizer = TAPETokenizer(vocab='iupac')
+        self.self.num_drug_features = self.drug_encoder.config.hidden_size
+        self.self.num_prot_features = self.prot_encoder.config.hidden_size
 
         super(BertDataset, self).__init__(root, None, None)
 
@@ -469,23 +471,17 @@ class BertDataset(GraphDataset):
 
     def process(self):
 
-        prot_model = ProteinBertModel.from_pretrained(PROT_BERT_NAME)
-        prot_tokenizer = TAPETokenizer(vocab='iupac')
-        drug_model = AutoModel.from_pretrained(DRUG_BERT_NAME)
-        drug_tokenizer = AutoTokenizer.from_pretrained(DRUG_BERT_NAME)
-        vocab = drug_tokenizer.vocab
+        vocab = self.drug_tokenizer.vocab
         reverse_vocab = {key: val for val, key in vocab.items()}
 
         processed_prots, processed_drugs = [], []
-
         for idx, row in tqdm(self.raw_data.iterrows(), total=self.n_total):
 
             # Only embed a protein if it hasn't already been embedded and saved
             if row["Prot_ID"] not in processed_prots:
-
-                token_ids = torch.tensor(
-                    [prot_tokenizer.encode(row['Protein'])])
-                embed = prot_model(token_ids)[0].squeeze()
+                tokens = \
+                    torch.tensor(self.prot_tokenizer.encode(row['Protein']))
+                embed = self.prot_encoder(tokens.reshape(1, -1))[0].squeeze()
                 edges = edges_from_protein_sequence(row['Protein'])
                 data = {'embeddings': Data(x=embed, edge_index=edges),
                         'Prot_ID': row['Prot_ID']}
@@ -495,14 +491,18 @@ class BertDataset(GraphDataset):
 
             # Only embed a drug if it hasn't already been embedded and saved
             if row['Drug_ID'] not in processed_drugs:
-
-                token_ids = torch.tensor([drug_tokenizer.encode(row['Drug'])])
-                embed = drug_model(token_ids).last_hidden_state.squeeze()
-                edges, index_map = smiles_edges_to_token_edges(row['Drug'],
-                                                               drug_tokenizer,
-                                                               reverse_vocab)
+                tokens = \
+                    torch.tensor(self.drug_tokenizer.encode(row['Drug'],
+                                                            truncation=True,
+                                                            max_length=512))
+                embed = \
+                    self.drug_encoder(tokens.reshape(1, -1)).last_hidden_state
+                edges, index_map = \
+                    smiles_edges_to_token_edges(row['Drug'],
+                                                self.drug_tokenizer,
+                                                reverse_vocab)
                 data = {'embeddings':
-                        Data(x=embed,
+                        Data(x=embed.squeeze(),
                              edge_index=torch.tensor(edges, dtype=torch.long)),
                         'Drug_ID': row['Drug_ID'],
                         'node_ids': index_map['keep'].values.astype('bool')}
@@ -556,7 +556,7 @@ class BertDataset(GraphDataset):
                 'Prot': row['Protein'],
                 'Y': row['Y']}
 
-        # drug_data['embeddings'].x.requires_grad = False
-        # prot_data['embeddings'].x.requires_grad = False
+        drug_data['embeddings'].x.requires_grad = False
+        prot_data['embeddings'].x.requires_grad = False
 
         return drug_data['embeddings'], prot_data['embeddings'], y, meta

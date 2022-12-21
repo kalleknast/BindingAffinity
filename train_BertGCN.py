@@ -6,32 +6,31 @@ from plot import plot_predictions, plot_losses
 from models import BertGCN
 import json
 
-model_name = 'BertGCN'
+model_name = 'BertGCN-PubChem77-MTR'
 dataset_name = 'KIBA'
 root = 'data'
 epochs = 100
 partition_kind = 'pair'
 # partition_kind = 'drug'
 batch_size = 256
+drug_encoder = 'DeepChem/ChemBERTa-77M-MTR'
+# drug_encoder = 'DeepChem/ChemBERTa-77M-MLM'
+# drug_encoder = "seyonec/ChemBERTa_zinc250k_v2_40k"
+# drug_encoder = 'seyonec/PubChem10M_SMILES_BPE_50k'
+prot_encoder = 'bert-base'
 
 model_name = f'{model_name}_{partition_kind}split'
 device = "cuda" if torch.cuda.is_available() else "cpu"
 # device = 'cpu'
 print(f"Using {device} device")
 
-dataset = BertDataset(root, dataset_name, partition_kind=partition_kind)
+dataset = BertDataset(root, dataset_name, partition_kind=partition_kind,
+                      drug_encoder=drug_encoder, prot_encoder=prot_encoder)
 data_loader = DataLoader(dataset,
                          batch_size=batch_size,
                          shuffle=True)
 
 model = BertGCN(dataset).to(device)
-# Some weights of RobertaModel were not initialized from the model checkpoint
-# at DeepChem/ChemBERTa-77M-MTR and are newly initialized:
-# ['roberta.pooler.dense.weight', 'roberta.pooler.dense.bias']
-#
-# Freeze all but the last drug_encoder/BERT pooler layer
-model.drug_encoder.embeddings.requires_grad_(False)
-model.drug_encoder.encoder.requires_grad_(False)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 loss_fn = torch.nn.MSELoss()
