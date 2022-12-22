@@ -500,43 +500,24 @@ class BertGCNRes(torch.nn.Module):
         self.batchnorm_d = BatchNorm(dataset.num_drug_features)
         self.dense_d1 = GraphLinear(dataset.num_drug_features, 2*n_hidden)
         self.dense_d2 = GraphLinear(2*n_hidden, n_hidden)
-        norm = LayerNorm(n_hidden, elementwise_affine=True)
-        self.gcnlayer_d1 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
-                                        norm, ReLU(inplace=True),
-                                        block='res+', dropout=0.1)
-        norm = LayerNorm(n_hidden, elementwise_affine=True)
-        self.gcnlayer_d2 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
-                                        norm, ReLU(inplace=True),
-                                        block='res+', dropout=0.1)
-        norm = LayerNorm(n_hidden, elementwise_affine=True)
-        self.gcnlayer_d3 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
-                                        norm, ReLU(inplace=True),
-                                        block='res+', dropout=0.1)
-        norm = LayerNorm(n_hidden, elementwise_affine=True)
-        self.gcnlayer_d4 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
-                                        norm, ReLU(inplace=True),
-                                        block='res+', dropout=0.1)
+        self.gcn_d1 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
+                                   ReLU(inplace=False), block='res')
+        self.gcn_d2 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
+                                   ReLU(inplace=False), block='res')
+        # norm = LayerNorm(n_hidden, elementwise_affine=True)
+        self.gcn_d3 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
+                                   ReLU(inplace=False), block='res')
 
         # Protein branch
         self.batchnorm_p = BatchNorm(dataset.num_prot_features)
         self.dense_p1 = GraphLinear(dataset.num_prot_features, 2*n_hidden)
         self.dense_p2 = GraphLinear(2*n_hidden, n_hidden)
-        norm = LayerNorm(n_hidden, elementwise_affine=True)
-        self.gcnlayer_p1 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
-                                        norm, ReLU(inplace=True),
-                                        block='res+', dropout=0.1)
-        norm = LayerNorm(n_hidden, elementwise_affine=True)
-        self.gcnlayer_p2 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
-                                        norm, ReLU(inplace=True),
-                                        block='res+', dropout=0.1)
-        norm = LayerNorm(n_hidden, elementwise_affine=True)
-        self.gcnlayer_p3 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
-                                        norm, ReLU(inplace=True),
-                                        block='res+', dropout=0.1)
-        norm = LayerNorm(n_hidden, elementwise_affine=True)
-        self.gcnlayer_p4 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
-                                        norm, ReLU(inplace=True),
-                                        block='res+', dropout=0.1)
+        self.gcn_p1 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
+                                   ReLU(inplace=False), block='res')
+        self.gcn_p2 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
+                                   ReLU(inplace=False), block='res')
+        self.gcn_p3 = DeepGCNLayer(GCNConv(n_hidden, n_hidden),
+                                   ReLU(inplace=False), block='res')
 
         # Common regressor
         self.dense_1 = GraphLinear(2*n_hidden, 256)
@@ -549,20 +530,18 @@ class BertGCNRes(torch.nn.Module):
         xd.x = self.batchnorm_d(xd.x)
         xd.x = self.dense_d1(xd.x).relu()
         xd.x = self.dense_d2(xd.x).relu()
-        xp.x = self.gcnlayer_d1(xp.x, xp.edge_index).relu()
-        xp.x = self.gcnlayer_d2(xp.x, xp.edge_index).relu()
-        xp.x = self.gcnlayer_d3(xp.x, xp.edge_index).relu()
-        xp.x = self.gcnlayer_d4(xp.x, xp.edge_index).relu()
+        xd.x = self.gcn_d1(xd.x, xd.edge_index)
+        xd.x = self.gcn_d2(xd.x, xd.edge_index)
+        xd.x = self.gcn_d3(xd.x, xd.edge_index)
         xd.x = global_mean_pool(xd.x, xd.batch)  # average pooling
 
         # Encode proteins
         xp.x = self.batchnorm_p(xp.x)
         xp.x = self.dense_p1(xp.x).relu()
         xp.x = self.dense_p2(xp.x).relu()
-        xp.x = self.gcnlayer_p1(xp.x, xp.edge_index).relu()
-        xp.x = self.gcnlayer_p2(xp.x, xp.edge_index).relu()
-        xp.x = self.gcnlayer_p3(xp.x, xp.edge_index).relu()
-        xp.x = self.gcnlayer_p4(xp.x, xp.edge_index).relu()
+        xp.x = self.gcn_p1(xp.x, xp.edge_index)
+        xp.x = self.gcn_p2(xp.x, xp.edge_index)
+        xp.x = self.gcn_p3(xp.x, xp.edge_index)
         xp.x = global_mean_pool(xp.x, xp.batch)  # average pooling
 
         # Common regression head
