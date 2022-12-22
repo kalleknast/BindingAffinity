@@ -158,11 +158,9 @@ class DeepDTADataset(Dataset):
         """
 
         self.partition = partition
-        train_df = pd.read_pickle(osp.join('data',
-                                           'processed',
+        train_df = pd.read_pickle(osp.join('data', 'raw',
                                            f'train_data_fold{fold}.pkl'))
-        valid_df = pd.read_pickle(osp.join('data',
-                                           'processed',
+        valid_df = pd.read_pickle(osp.join('data', 'raw',
                                            f'valid_data_fold{fold}.pkl'))
         self.train_x = [np.stack(train_df['Drug_enc']).astype(np.int32),
                         np.stack(train_df['Prot_enc']).astype(np.int32)]
@@ -432,8 +430,8 @@ class BertDataset(GraphDataset):
         self.prot_encoder = \
             ProteinBertModel.from_pretrained(self.prot_encoder_name)
         self.prot_tokenizer = TAPETokenizer(vocab='iupac')
-        self.self.num_drug_features = self.drug_encoder.config.hidden_size
-        self.self.num_prot_features = self.prot_encoder.config.hidden_size
+        self.num_drug_features = self.drug_encoder.config.hidden_size
+        self.num_prot_features = self.prot_encoder.config.hidden_size
 
         super(BertDataset, self).__init__(root, None, None)
 
