@@ -101,12 +101,19 @@ The network architecture is described in Fig. 1 of the paper.
 
 #### Train and evaluate
 This will download and process the data the first time it runs.
+Without residual connections:
 ```terminal
 python train_BertGCN.py
 ```
+
+With residual connections:
+```terminal
+python train_BertGCNRes.py
+```
+
 This implementation does **not** re-produce the performance reported in the [paper](https://openreview.net/pdf?id=Zqf6RGp5lqf).
 
 #### TODO
  - [ ] See if the actual `edge_index` for the proteins can be downloaded from the [UniProt](https://www.uniprot.org/) protein database.
- - [ ] Add residual connections to the GCN layers.
+ - [x] Add residual connections to the GCN layers.
 
