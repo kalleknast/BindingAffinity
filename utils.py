@@ -210,18 +210,15 @@ def edges_from_protein_sequence(prot_seq):
     sequence will have edges between them.
     """
     n = len(prot_seq)
-    # first row in COO format
+    # first and row in COO format
     # each node is connected to left and right except the first an last.
-    rows = np.zeros((n, 2), dtype=int)
-    rows[:, 0] = np.repeat(np.arange(n), 2)[1:-1]
-    # second row in COO format
-    rows[:, 1] = rows[:, 0].copy()
+    edge_index = np.stack([np.repeat(np.arange(n), 2)[1:-1],
+                           np.repeat(np.arange(n), 2)[1:-1]], axis=0)
     for i in range(0, n, 2):
-        rows[i, 1], rows[i+1, 1] = rows[i+1, 1], rows[i, 1]
+        edge_index[1, i], edge_index[1, i+1] = \
+            edge_index[1, i+1], edge_index[1, i]
 
-    edge_index = torch.tensor(rows, dtype=torch.long)
-
-    return edge_index
+    return torch.tensor(edge_index, dtype=torch.long)
 
 
 def get_dictionary(fname, raw_data, kind):
@@ -238,27 +235,3 @@ def get_dictionary(fname, raw_data, kind):
             dictionary = json.load(f)
 
     return dictionary
-
-# def find_edge_mismatches(filenames, tokenizer):
-#     """
-#     """
-#     raw = DTI(name='DAVIS').get_data()
-#
-#     mismatches = []
-#
-#     for filename in filenames:
-#         data = torch.load(filename)
-#         num_nodes = data['embeddings'].x.shape[0]
-#         last_node = int(data['embeddings'].edge_index.max())
-#
-#         if num_nodes < (last_node + 1):
-#             smiles = np.unique(raw[data['Drug_ID'] == raw['Drug_ID']]['Drug'])
-#             mismatch = {'Drug_ID': data['Drug_ID'],
-#                         'SMILES': smiles[0],
-#                         'tokens': tokenizer(smiles[0])['input_ids'],
-#                         'diff': (last_node + 1) - num_nodes,
-#                         'nodes': data['embeddings'].x,
-#                         'edges': data['embeddings'].edge_index}
-#             mismatches.append(mismatch)
-#
-#     return mismatches
