@@ -111,6 +111,8 @@ With residual connections:
 python train_BertGCNRes.py
 ```
 
+![BertGCNRes training history](fig/training_history_BertGCNRes-PubChem77-MLM_pairsplit_epochs100.png)
+
 This implementation does **not** re-produce the performance reported in the [paper](https://openreview.net/pdf?id=Zqf6RGp5lqf).
 
 #### TODO
