@@ -117,6 +117,10 @@ python train_BertGCNRes.py
 
 This implementation does **not** re-produce the performance reported in the [paper](https://openreview.net/pdf?id=Zqf6RGp5lqf).
 
+##### Effect of residual connections
+
+![BertGCNRes vs BertGCN](fig/history_comparison_PubChem77M-MTR.png)
+
 #### TODO
  - [ ] See if the actual `edge_index` for the proteins can be downloaded from the [UniProt](https://www.uniprot.org/) protein database.
  - [x] Add residual connections to the GCN layers.
