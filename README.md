@@ -101,17 +101,19 @@ The network architecture is described in Fig. 1 of the paper.
 
 #### Train and evaluate
 This will download and process the data the first time it runs.
-Without residual connections:
+
+##### Without residual connections
 ```terminal
 python train_BertGCN.py
 ```
+![BertGCN training history](fig/history_comparison_BertCGN.png)
 
-With residual connections:
+##### With residual connections
 ```terminal
 python train_BertGCNRes.py
 ```
 
-![BertGCNRes training history](fig/training_history_BertGCNRes-PubChem77-MLM_pairsplit_epochs100.png)
+![BertGCNRes training history](fig/history_comparison_BertCGNRes.png)
 
 This implementation does **not** re-produce the performance reported in the [paper](https://openreview.net/pdf?id=Zqf6RGp5lqf).
 
