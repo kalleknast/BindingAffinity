@@ -122,7 +122,7 @@ This implementation does **not** re-produce the performance reported in the [pap
 ![BertGCNRes vs BertGCN](fig/history_comparison_PubChem77M-MTR.png)
 
 ##### Train-test split on drugs versus pairs
-As for DeepDTA the validation performance drops significantly when the dataset is partitioned on unique drugs instead of unique drug-protein pairs. Thus, these model won't generalize well to new drugs not present in the training data.
+As for DeepDTA the validation performance drops significantly when the dataset is partitioned on unique drugs instead of unique drug-protein pairs. Thus, these models will not generalize well to new drugs not present in the training data.
 
 ![Drug split vs pair split](fig/history_comparison_BertGCNRes_PubChem77M-MTR_drugsplit-vs-pairsplit.png)
 
