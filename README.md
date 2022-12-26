@@ -121,6 +121,11 @@ This implementation does **not** re-produce the performance reported in the [pap
 
 ![BertGCNRes vs BertGCN](fig/history_comparison_PubChem77M-MTR.png)
 
+##### Train-test split on drugs versus pairs
+As for DeepDTA the validation performance drops significantly when the dataset is partitioned on unique drugs instead of unique drug-protein pairs. Thus, these model won't generalize well to new drugs not present in the training data.
+
+![Drug split vs pair split](fig/history_comparison_BertGCNRes_PubChem77M-MTR_drugsplit-vs-pairsplit.png)
+
 #### TODO
  - [ ] See if the actual `edge_index` for the proteins can be downloaded from the [UniProt](https://www.uniprot.org/) protein database.
  - [x] Add residual connections to the GCN layers.
